@@ -1,0 +1,13 @@
+{
+  "name": "puppeteer-analyzer",
+  "version": "1.0.0",
+  "description": "My Puppeteer analysis script",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "puppeteer": "^19.7.5"
+  }
+}
