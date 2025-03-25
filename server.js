@@ -59,11 +59,40 @@ async function analyzeUrl(url) {
     }
 
     // 4. Structured data (JSON-LD) count
-    const ldScripts = await page.$$eval('script[type="application/ld+json"]', scripts => scripts.length);
-    const structuredDataCount = ldScripts;
+    const structuredDataCount = await page.$$eval('script[type="application/ld+json"]', scripts => scripts.length);
 
-    // 5. Additional checks? E.g., check if there’s an H1, or if jQuery is loaded
-    // let hasH1 = await page.$('h1') !== null;
+    // 5. Product count: using common selectors (customize as needed)
+    const productSelectors = ['.product', '.item', '.product-card'];
+    let productCount = 0;
+    for (const selector of productSelectors) {
+      const count = await page.$$eval(selector, elems => elems.length);
+      productCount += count;
+    }
+
+    // 6. API usage detection: check if the page content contains "/api/" or "fetch("
+    let apiUsage = false;
+    try {
+      const content = await page.content();
+      apiUsage = content.includes('/api/') || content.includes('fetch(');
+    } catch (err) {
+      apiUsage = false;
+    }
+
+    // 7. H1 element check
+    let hasH1 = false;
+    try {
+      hasH1 = (await page.$('h1')) !== null;
+    } catch (err) {
+      hasH1 = false;
+    }
+
+    // 8. jQuery version detection
+    let jqueryVersion = 'Not detected';
+    try {
+      jqueryVersion = await page.evaluate(() => window.jQuery ? jQuery.fn.jquery : 'Not detected');
+    } catch (err) {
+      jqueryVersion = 'Error detecting';
+    }
 
     // Return an object with all the info
     return {
@@ -72,16 +101,18 @@ async function analyzeUrl(url) {
       usesHttps,
       metaDescription,
       structuredDataCount,
-      loadTime
+      loadTime,
+      productCount,
+      apiUsage,
+      hasH1,
+      jqueryVersion
     };
 
   } catch (error) {
     console.error('Error analyzing URL:', url, error);
     return { url, error: `Could not load the page: ${error.message}` };
   } finally {
-    if (browser) {
-      await browser.close();
-    }
+    if (browser) await browser.close();
   }
 }
 
