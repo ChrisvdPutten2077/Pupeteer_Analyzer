@@ -5,7 +5,6 @@ const fs = require('fs');
 const app = express();
 app.use(express.json());
 
-
 // Debug snippet: list files in the known Puppeteer directory
 try {
   const debugPath = '/opt/render/.cache/puppeteer/chrome/linux-1108766';
