@@ -18,26 +18,41 @@ app.post('/analyze', async (req, res) => {
     }
     res.json(results);
   } catch (err) {
-    console.error(err);
+    console.error('Error in /analyze endpoint:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 async function analyzeUrl(url) {
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox']
-  });
-  const page = await browser.newPage();
+  let browser;
   try {
+    browser = await puppeteer.launch({
+      // If you want to try the new headless mode, use headless: 'new'
+      // headless: 'new',
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage'
+      ]
+    });
+
+    const page = await browser.newPage();
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+
+    const title = await page.title();
+    return { url, title };
+
   } catch (error) {
-    await browser.close();
+    console.error('Error analyzing URL:', url, error);
     return { url, error: `Could not load the page: ${error.message}` };
+
+  } finally {
+    // Ensure the browser is closed even if there's an error
+    if (browser) {
+      await browser.close();
+    }
   }
-  const title = await page.title();
-  await browser.close();
-  return { url, title };
 }
 
 const PORT = process.env.PORT || 3000;
