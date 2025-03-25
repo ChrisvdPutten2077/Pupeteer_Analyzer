@@ -40,19 +40,18 @@ async function analyzeUrl(url) {
     });
 
     const page = await browser.newPage();
-
-    // Measure load time
     const startTime = Date.now();
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-    const loadTime = (Date.now() - startTime) / 1000; // in seconds
+    // Use 'domcontentloaded' with a shorter timeout since the main content loads quickly.
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    const loadTime = (Date.now() - startTime) / 1000; // seconds
 
-    // 1. Page title
+    // 1. Page Title
     const title = await page.title();
 
-    // 2. HTTPS check
+    // 2. HTTPS Check
     const usesHttps = url.startsWith('https');
 
-    // 3. Meta description
+    // 3. Meta Description
     let metaDescription = '';
     try {
       metaDescription = await page.$eval('meta[name="description"]', el => el.content);
@@ -60,10 +59,10 @@ async function analyzeUrl(url) {
       metaDescription = 'No meta description found';
     }
 
-    // 4. Structured data (JSON-LD) count
+    // 4. Structured Data Count
     const structuredDataCount = await page.$$eval('script[type="application/ld+json"]', scripts => scripts.length);
 
-    // 5. Product count (using common selectors)
+    // 5. Product Count using common selectors
     const productSelectors = ['.product', '.product-item', '.item', '.product-card'];
     let productCount = 0;
     for (const selector of productSelectors) {
@@ -71,7 +70,7 @@ async function analyzeUrl(url) {
       productCount += count;
     }
 
-    // 6. API usage detection (basic)
+    // 6. API Usage Detection
     let apiUsage = false;
     try {
       const content = await page.content();
@@ -88,7 +87,7 @@ async function analyzeUrl(url) {
       hasH1 = false;
     }
 
-    // 8. Detect jQuery version if loaded
+    // 8. Detect jQuery version, if loaded
     let jqueryVersion = 'Not detected';
     try {
       jqueryVersion = await page.evaluate(() => window.jQuery ? jQuery.fn.jquery : 'Not detected');
@@ -96,7 +95,7 @@ async function analyzeUrl(url) {
       jqueryVersion = 'Not detected';
     }
 
-    // 9. Login wall detection (optional; can remove if not needed)
+    // 9. Login Wall Detection
     let loginWallDetected = false;
     try {
       loginWallDetected = (await page.$("input[type='password']")) !== null;
@@ -104,7 +103,6 @@ async function analyzeUrl(url) {
       loginWallDetected = false;
     }
 
-    // Return only the essential data
     return {
       url,
       title,
