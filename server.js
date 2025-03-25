@@ -5,13 +5,13 @@ const fs = require('fs');
 const app = express();
 app.use(express.json());
 
-// Debug snippet: list subdirectories in the Puppeteer chrome folder
+// Debug snippet: list files in the known Puppeteer directory
 try {
-  const debugPath = '/opt/render/.cache/puppeteer/chrome';
+  const debugPath = '/opt/render/.cache/puppeteer/chrome/linux-1108766';
   const files = fs.readdirSync(debugPath);
-  console.log('Subdirectories in puppeteer chrome folder:', files);
+  console.log('Files in', debugPath, ':', files);
 } catch (err) {
-  console.error('Error reading parent directory:', err);
+  console.error('Error reading directory:', err);
 }
 
 app.post('/analyze', async (req, res) => {
@@ -40,11 +40,10 @@ app.post('/analyze', async (req, res) => {
 async function analyzeUrl(url) {
   let browser;
   try {
-    // Hardcode the expected path for Chromium
+    // Force the executable path to the known location
     const forcedExecPath = '/opt/render/.cache/puppeteer/chrome/linux-1108766/chrome-linux/chrome';
     console.log('Forcing executable path:', forcedExecPath);
 
-    // Check if the forced path exists
     if (!fs.existsSync(forcedExecPath)) {
       console.warn('Chromium binary not found at forced path:', forcedExecPath);
     }
