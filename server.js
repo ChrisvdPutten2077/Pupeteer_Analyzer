@@ -94,6 +94,15 @@ async function analyzeUrl(url) {
       jqueryVersion = 'Not detected';
     }
 
+    // 9. Login wall detection:
+    //    Checks if the page contains a password input field (a common indicator of a login form).
+    let loginWallDetected = false;
+    try {
+      loginWallDetected = (await page.$("input[type='password']")) !== null;
+    } catch (err) {
+      loginWallDetected = false;
+    }
+
     return {
       url,
       title,
@@ -104,14 +113,17 @@ async function analyzeUrl(url) {
       productCount,
       apiUsage,
       hasH1,
-      jqueryVersion
+      jqueryVersion,
+      loginWallDetected
     };
 
   } catch (error) {
     console.error('Error analyzing URL:', url, error);
     return { url, error: `Could not load the page: ${error.message}` };
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      await browser.close();
+    }
   }
 }
 
