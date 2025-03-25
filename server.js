@@ -26,8 +26,8 @@ app.post('/analyze', async (req, res) => {
 async function analyzeUrl(url) {
   let browser;
   try {
-    // Log the executable path for debugging
-    const execPath = puppeteer.executablePath();
+    // Use the environment variable if provided, otherwise get Puppeteer's default executable path.
+    const execPath = process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath();
     console.log('Chromium executable path:', execPath);
 
     browser = await puppeteer.launch({
@@ -48,7 +48,6 @@ async function analyzeUrl(url) {
   } catch (error) {
     console.error('Error analyzing URL:', url, error);
     return { url, error: `Could not load the page: ${error.message}` };
-
   } finally {
     if (browser) await browser.close();
   }
