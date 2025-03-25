@@ -1,6 +1,5 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
-const fs = require('fs');
 
 const app = express();
 app.use(express.json());
@@ -31,21 +30,14 @@ app.post('/analyze', async (req, res) => {
 async function analyzeUrl(url) {
   let browser;
   try {
-    // Define your forced path based on the build logs.
-    const forcedExecPath = '/opt/render/.cache/puppeteer/chrome/linux-1108766/chrome-linux/chrome';
-    const defaultExecPath = puppeteer.executablePath();
-
-    // Use the forced path if it exists; otherwise, fall back to Puppeteer's default path.
-    let finalExecPath = forcedExecPath;
-    if (!fs.existsSync(forcedExecPath)) {
-      console.warn('Forced executable path not found, falling back to default:', defaultExecPath);
-      finalExecPath = defaultExecPath;
-    }
-    console.log('Using executable path:', finalExecPath);
+    // Let Puppeteer decide which executable to use.
+    console.log('Using default executable path:', puppeteer.executablePath());
 
     browser = await puppeteer.launch({
       headless: true,
-      executablePath: finalExecPath,
+      // Remove 'executablePath' parameter to let Puppeteer locate Chromium automatically.
+      // If needed, you can re-enable it after verifying the default works.
+      // executablePath: puppeteer.executablePath(),
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
