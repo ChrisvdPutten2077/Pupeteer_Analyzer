@@ -30,14 +30,8 @@ app.post('/analyze', async (req, res) => {
 async function analyzeUrl(url) {
   let browser;
   try {
-    // Let Puppeteer decide which executable to use.
-    console.log('Using default executable path:', puppeteer.executablePath());
-
     browser = await puppeteer.launch({
       headless: true,
-      // Remove 'executablePath' parameter to let Puppeteer locate Chromium automatically.
-      // If needed, you can re-enable it after verifying the default works.
-      // executablePath: puppeteer.executablePath(),
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -46,14 +40,48 @@ async function analyzeUrl(url) {
     });
 
     const page = await browser.newPage();
+    const startTime = Date.now();
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    const loadTime = (Date.now() - startTime) / 1000; // in seconds
+
+    // 1. Title
     const title = await page.title();
-    return { url, title };
+
+    // 2. HTTPS check
+    const usesHttps = url.startsWith('https');
+
+    // 3. Meta description
+    let metaDescription = '';
+    try {
+      metaDescription = await page.$eval('meta[name="description"]', el => el.content);
+    } catch (err) {
+      metaDescription = 'No meta description found';
+    }
+
+    // 4. Structured data (JSON-LD) count
+    const ldScripts = await page.$$eval('script[type="application/ld+json"]', scripts => scripts.length);
+    const structuredDataCount = ldScripts;
+
+    // 5. Additional checks? E.g., check if there’s an H1, or if jQuery is loaded
+    // let hasH1 = await page.$('h1') !== null;
+
+    // Return an object with all the info
+    return {
+      url,
+      title,
+      usesHttps,
+      metaDescription,
+      structuredDataCount,
+      loadTime
+    };
+
   } catch (error) {
     console.error('Error analyzing URL:', url, error);
     return { url, error: `Could not load the page: ${error.message}` };
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      await browser.close();
+    }
   }
 }
 
