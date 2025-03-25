@@ -4,7 +4,6 @@
   "description": "My Puppeteer analysis script",
   "main": "server.js",
   "scripts": {
-    "postinstall": "node node_modules/puppeteer/install.js",
     "start": "node server.js"
   },
   "dependencies": {
