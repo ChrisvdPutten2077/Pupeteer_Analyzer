@@ -2,6 +2,13 @@ const express = require('express');
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 
+try {
+  const files = fs.readdirSync('/opt/render/.cache/puppeteer/chrome/linux-1108766');
+  console.log('Files in linux-1108766 folder:', files);
+} catch (err) {
+  console.error('Error reading directory:', err);
+}
+
 const app = express();
 app.use(express.json());
 
