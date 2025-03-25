@@ -1,6 +1,7 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
 const fs = require('fs');
+const path = require('path');
 
 const app = express();
 app.use(express.json());
@@ -14,7 +15,6 @@ app.post('/analyze', async (req, res) => {
 
     const results = [];
     for (const url of urls) {
-      // Validate URL: it should start with http or https
       if (!url.startsWith('http')) {
         results.push({ url, error: 'Invalid URL format' });
         continue;
@@ -32,22 +32,18 @@ app.post('/analyze', async (req, res) => {
 async function analyzeUrl(url) {
   let browser;
   try {
-    // Get the default executable path
-    let execPath = puppeteer.executablePath();
-    console.log('Default executable path:', execPath);
+    // This is the path where Render logs say Chromium is downloaded:
+    const forcedExecPath = '/opt/render/.cache/puppeteer/chrome/linux-1108766/chrome-linux/chrome';
+    console.log('Forcing executable path:', forcedExecPath);
 
-    // Check if the executable exists; if not, try appending "/chrome-linux/chrome"
-    if (!fs.existsSync(execPath)) {
-      const alternative = execPath + '/chrome-linux/chrome';
-      if (fs.existsSync(alternative)) {
-        execPath = alternative;
-      }
+    // Double-check it actually exists:
+    if (!fs.existsSync(forcedExecPath)) {
+      console.warn('Chromium executable not found at forced path:', forcedExecPath);
     }
-    console.log('Using executable path:', execPath);
 
     browser = await puppeteer.launch({
       headless: true,
-      executablePath: execPath,
+      executablePath: forcedExecPath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
