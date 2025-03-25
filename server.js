@@ -40,9 +40,11 @@ async function analyzeUrl(url) {
     });
 
     const page = await browser.newPage();
+
+    // Measure load time
     const startTime = Date.now();
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-    const loadTime = (Date.now() - startTime) / 1000; // seconds
+    const loadTime = (Date.now() - startTime) / 1000; // in seconds
 
     // 1. Page title
     const title = await page.title();
@@ -50,7 +52,7 @@ async function analyzeUrl(url) {
     // 2. HTTPS check
     const usesHttps = url.startsWith('https');
 
-    // 3. Meta description extraction
+    // 3. Meta description
     let metaDescription = '';
     try {
       metaDescription = await page.$eval('meta[name="description"]', el => el.content);
@@ -69,7 +71,7 @@ async function analyzeUrl(url) {
       productCount += count;
     }
 
-    // 6. API usage detection by scanning page content for hints
+    // 6. API usage detection (basic)
     let apiUsage = false;
     try {
       const content = await page.content();
@@ -78,7 +80,7 @@ async function analyzeUrl(url) {
       apiUsage = false;
     }
 
-    // 7. Check for the presence of an H1 element
+    // 7. Check for an H1 element
     let hasH1 = false;
     try {
       hasH1 = (await page.$('h1')) !== null;
@@ -86,7 +88,7 @@ async function analyzeUrl(url) {
       hasH1 = false;
     }
 
-    // 8. Detect jQuery version, if loaded
+    // 8. Detect jQuery version if loaded
     let jqueryVersion = 'Not detected';
     try {
       jqueryVersion = await page.evaluate(() => window.jQuery ? jQuery.fn.jquery : 'Not detected');
@@ -94,6 +96,15 @@ async function analyzeUrl(url) {
       jqueryVersion = 'Not detected';
     }
 
+    // 9. Login wall detection (optional; can remove if not needed)
+    let loginWallDetected = false;
+    try {
+      loginWallDetected = (await page.$("input[type='password']")) !== null;
+    } catch (err) {
+      loginWallDetected = false;
+    }
+
+    // Return only the essential data
     return {
       url,
       title,
@@ -104,14 +115,17 @@ async function analyzeUrl(url) {
       productCount,
       apiUsage,
       hasH1,
-      jqueryVersion
+      jqueryVersion,
+      loginWallDetected
     };
 
   } catch (error) {
     console.error('Error analyzing URL:', url, error);
     return { url, error: `Could not load the page: ${error.message}` };
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      await browser.close();
+    }
   }
 }
 
