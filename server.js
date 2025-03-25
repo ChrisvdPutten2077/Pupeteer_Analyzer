@@ -26,10 +26,13 @@ app.post('/analyze', async (req, res) => {
 async function analyzeUrl(url) {
   let browser;
   try {
+    // Log the executable path for debugging
+    const execPath = puppeteer.executablePath();
+    console.log('Chromium executable path:', execPath);
+
     browser = await puppeteer.launch({
-      // If you want to try the new headless mode, use headless: 'new'
-      // headless: 'new',
       headless: true,
+      executablePath: execPath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -39,7 +42,6 @@ async function analyzeUrl(url) {
 
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-
     const title = await page.title();
     return { url, title };
 
@@ -48,10 +50,7 @@ async function analyzeUrl(url) {
     return { url, error: `Could not load the page: ${error.message}` };
 
   } finally {
-    // Ensure the browser is closed even if there's an error
-    if (browser) {
-      await browser.close();
-    }
+    if (browser) await browser.close();
   }
 }
 
