@@ -31,17 +31,21 @@ app.post('/analyze', async (req, res) => {
 async function analyzeUrl(url) {
   let browser;
   try {
-    // Force the executable path to the known location
+    // Define your forced path based on the build logs.
     const forcedExecPath = '/opt/render/.cache/puppeteer/chrome/linux-1108766/chrome-linux/chrome';
-    console.log('Forcing executable path:', forcedExecPath);
+    const defaultExecPath = puppeteer.executablePath();
 
+    // Use the forced path if it exists; otherwise, fall back to Puppeteer's default path.
+    let finalExecPath = forcedExecPath;
     if (!fs.existsSync(forcedExecPath)) {
-      console.warn('Chromium binary not found at forced path:', forcedExecPath);
+      console.warn('Forced executable path not found, falling back to default:', defaultExecPath);
+      finalExecPath = defaultExecPath;
     }
+    console.log('Using executable path:', finalExecPath);
 
     browser = await puppeteer.launch({
       headless: true,
-      executablePath: forcedExecPath,
+      executablePath: finalExecPath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
