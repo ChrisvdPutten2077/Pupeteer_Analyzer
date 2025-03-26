@@ -30,8 +30,10 @@ app.post('/analyze', async (req, res) => {
 async function analyzeUrl(url) {
   let browser;
   try {
+    // Launch Puppeteer with new headless mode and an (undocumented) protocolTimeout.
     browser = await puppeteer.launch({
-      headless: true,
+      headless: 'new',
+      protocolTimeout: 120000, // Attempt to increase the DevTools protocol timeout
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -40,17 +42,31 @@ async function analyzeUrl(url) {
     });
 
     const page = await browser.newPage();
+
+    // Increase page-level timeouts to 90 seconds
+    page.setDefaultNavigationTimeout(90000);
+    page.setDefaultTimeout(90000);
+
     const startTime = Date.now();
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    try {
+      // Use a lighter waitUntil condition to avoid waiting for all resources
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
+    } catch (err) {
+      if (err.message.includes('Navigation timeout')) {
+        return { url, error: 'Navigation timeout exceeded while loading the page.' };
+      }
+      // If it's another type of error, throw it so we can catch it below
+      throw err;
+    }
     const loadTime = (Date.now() - startTime) / 1000; // in seconds
 
-    // 1. Title
+    // 1. Page Title
     const title = await page.title();
 
-    // 2. HTTPS check
+    // 2. HTTPS Check
     const usesHttps = url.startsWith('https');
 
-    // 3. Meta description
+    // 3. Meta Description
     let metaDescription = '';
     try {
       metaDescription = await page.$eval('meta[name="description"]', el => el.content);
@@ -58,30 +74,73 @@ async function analyzeUrl(url) {
       metaDescription = 'No meta description found';
     }
 
-    // 4. Structured data (JSON-LD) count
-    const ldScripts = await page.$$eval('script[type="application/ld+json"]', scripts => scripts.length);
-    const structuredDataCount = ldScripts;
+    // 4. Structured Data Count
+    const structuredDataCount = await page.$$eval('script[type="application/ld+json"]', scripts => scripts.length);
 
-    // 5. Additional checks? E.g., check if there’s an H1, or if jQuery is loaded
-    // let hasH1 = await page.$('h1') !== null;
+    // 5. Product Count using common selectors
+    const productSelectors = ['.product', '.product-item', '.item', '.product-card'];
+    let productCount = 0;
+    for (const selector of productSelectors) {
+      try {
+        const count = await page.$$eval(selector, elems => elems.length);
+        productCount += count;
+      } catch (err) {
+        productCount += 0;
+      }
+    }
 
-    // Return an object with all the info
+    // 6. API Usage Detection
+    let apiUsage = false;
+    try {
+      const content = await page.content();
+      apiUsage = content.includes('/api/') || content.includes('fetch(');
+    } catch (err) {
+      apiUsage = false;
+    }
+
+    // 7. Check for an H1 element
+    let hasH1 = false;
+    try {
+      hasH1 = (await page.$('h1')) !== null;
+    } catch (err) {
+      hasH1 = false;
+    }
+
+    // 8. Detect jQuery version if loaded
+    let jqueryVersion = 'Not detected';
+    try {
+      jqueryVersion = await page.evaluate(() => window.jQuery ? jQuery.fn.jquery : 'Not detected');
+    } catch (err) {
+      jqueryVersion = 'Not detected';
+    }
+
+    // 9. Login Wall Detection
+    let loginWallDetected = false;
+    try {
+      loginWallDetected = (await page.$("input[type='password']")) !== null;
+    } catch (err) {
+      loginWallDetected = false;
+    }
+
     return {
       url,
       title,
       usesHttps,
       metaDescription,
       structuredDataCount,
-      loadTime
+      loadTime,
+      productCount,
+      apiUsage,
+      hasH1,
+      jqueryVersion,
+      loginWallDetected
     };
 
   } catch (error) {
     console.error('Error analyzing URL:', url, error);
     return { url, error: `Could not load the page: ${error.message}` };
   } finally {
-    if (browser) {
-      await browser.close();
-    }
+    if (browser) await browser.close();
   }
 }
 
