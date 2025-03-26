@@ -30,10 +30,8 @@ app.post('/analyze', async (req, res) => {
 async function analyzeUrl(url) {
   let browser;
   try {
-    // Launch Puppeteer with new headless mode and an (undocumented) protocolTimeout.
     browser = await puppeteer.launch({
-      headless: 'new',
-      protocolTimeout: 120000, // Attempt to increase the DevTools protocol timeout
+      headless: true, // or 'new' if you want to opt into Puppeteer's new headless mode
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -43,30 +41,17 @@ async function analyzeUrl(url) {
 
     const page = await browser.newPage();
 
-    // Increase page-level timeouts to 90 seconds
-    page.setDefaultNavigationTimeout(90000);
-    page.setDefaultTimeout(90000);
+    // Shorter, simpler wait condition to avoid timeouts
+    page.setDefaultNavigationTimeout(30000);
 
     const startTime = Date.now();
-    try {
-      // Use a lighter waitUntil condition to avoid waiting for all resources
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
-    } catch (err) {
-      if (err.message.includes('Navigation timeout')) {
-        return { url, error: 'Navigation timeout exceeded while loading the page.' };
-      }
-      // If it's another type of error, throw it so we can catch it below
-      throw err;
-    }
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     const loadTime = (Date.now() - startTime) / 1000; // in seconds
 
     // 1. Page Title
     const title = await page.title();
 
-    // 2. HTTPS Check
-    const usesHttps = url.startsWith('https');
-
-    // 3. Meta Description
+    // 2. Meta Description
     let metaDescription = '';
     try {
       metaDescription = await page.$eval('meta[name="description"]', el => el.content);
@@ -74,10 +59,10 @@ async function analyzeUrl(url) {
       metaDescription = 'No meta description found';
     }
 
-    // 4. Structured Data Count
+    // 3. Structured Data (JSON-LD) count
     const structuredDataCount = await page.$$eval('script[type="application/ld+json"]', scripts => scripts.length);
 
-    // 5. Product Count using common selectors
+    // 4. Product Count using minimal selectors
     const productSelectors = ['.product', '.product-item', '.item', '.product-card'];
     let productCount = 0;
     for (const selector of productSelectors) {
@@ -89,7 +74,7 @@ async function analyzeUrl(url) {
       }
     }
 
-    // 6. API Usage Detection
+    // 5. API Usage Detection
     let apiUsage = false;
     try {
       const content = await page.content();
@@ -98,49 +83,22 @@ async function analyzeUrl(url) {
       apiUsage = false;
     }
 
-    // 7. Check for an H1 element
-    let hasH1 = false;
-    try {
-      hasH1 = (await page.$('h1')) !== null;
-    } catch (err) {
-      hasH1 = false;
-    }
-
-    // 8. Detect jQuery version if loaded
-    let jqueryVersion = 'Not detected';
-    try {
-      jqueryVersion = await page.evaluate(() => window.jQuery ? jQuery.fn.jquery : 'Not detected');
-    } catch (err) {
-      jqueryVersion = 'Not detected';
-    }
-
-    // 9. Login Wall Detection
-    let loginWallDetected = false;
-    try {
-      loginWallDetected = (await page.$("input[type='password']")) !== null;
-    } catch (err) {
-      loginWallDetected = false;
-    }
-
     return {
       url,
+      loadTime,
       title,
-      usesHttps,
       metaDescription,
       structuredDataCount,
-      loadTime,
       productCount,
-      apiUsage,
-      hasH1,
-      jqueryVersion,
-      loginWallDetected
+      apiUsage
     };
-
   } catch (error) {
     console.error('Error analyzing URL:', url, error);
     return { url, error: `Could not load the page: ${error.message}` };
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      await browser.close();
+    }
   }
 }
 
