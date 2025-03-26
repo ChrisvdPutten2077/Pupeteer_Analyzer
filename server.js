@@ -30,7 +30,7 @@ app.post('/analyze', async (req, res) => {
 async function analyzeUrl(url) {
   let browser;
   try {
-    // Launch Puppeteer using the new headless mode to address deprecation warnings
+    // Launch Puppeteer using the new headless mode (optional) and increased timeouts.
     browser = await puppeteer.launch({
       headless: 'new',
       args: [
@@ -42,11 +42,12 @@ async function analyzeUrl(url) {
 
     const page = await browser.newPage();
 
-    // Increase the navigation timeout to 60 seconds
-    page.setDefaultNavigationTimeout(60000);
+    // Increase navigation timeout to 90 seconds
+    page.setDefaultNavigationTimeout(90000);
 
     const startTime = Date.now();
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+    // Use a lighter wait condition ("domcontentloaded") to reduce waiting time
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
     const loadTime = (Date.now() - startTime) / 1000; // in seconds
 
     // 1. Page Title
@@ -99,12 +100,60 @@ async function analyzeUrl(url) {
       jqueryVersion = 'Not detected';
     }
 
-    // 9. Login Wall Detection
+    // 9. Login Wall Detection: check for a password input field
     let loginWallDetected = false;
     try {
       loginWallDetected = (await page.$("input[type='password']")) !== null;
     } catch (err) {
       loginWallDetected = false;
+    }
+
+    // 10. Open Graph Metadata
+    let openGraphTitle = 'Not detected';
+    let openGraphDescription = 'Not detected';
+    try {
+      openGraphTitle = await page.$eval('meta[property="og:title"]', el => el.content);
+    } catch (err) {
+      openGraphTitle = 'Not detected';
+    }
+    try {
+      openGraphDescription = await page.$eval('meta[property="og:description"]', el => el.content);
+    } catch (err) {
+      openGraphDescription = 'Not detected';
+    }
+
+    // 11. Mobile Responsiveness: Check if viewport meta tag exists
+    let viewportExists = false;
+    try {
+      viewportExists = (await page.$('meta[name="viewport"]')) !== null;
+    } catch (err) {
+      viewportExists = false;
+    }
+
+    // 12. Accessibility: Count images without alt attributes
+    let imagesWithoutAlt = 0;
+    try {
+      imagesWithoutAlt = await page.$$eval('img', imgs =>
+        imgs.filter(img => !img.getAttribute('alt') || img.getAttribute('alt').trim() === '').length
+      );
+    } catch (err) {
+      imagesWithoutAlt = 0;
+    }
+
+    // 13. Platform Clues: Get generator meta tag (e.g., WordPress, Magento)
+    let generatorMeta = 'Not detected';
+    try {
+      generatorMeta = await page.$eval('meta[name="generator"]', el => el.content);
+    } catch (err) {
+      generatorMeta = 'Not detected';
+    }
+
+    // 14. Pagination Detection: Look for common pagination elements or "load more" buttons
+    let paginationDetected = false;
+    try {
+      paginationDetected = (await page.$('.pagination')) !== null || (await page.$('button.load-more')) !== null;
+    } catch (err) {
+      paginationDetected = false;
     }
 
     return {
@@ -118,7 +167,13 @@ async function analyzeUrl(url) {
       apiUsage,
       hasH1,
       jqueryVersion,
-      loginWallDetected
+      loginWallDetected,
+      openGraphTitle,
+      openGraphDescription,
+      viewportExists,
+      imagesWithoutAlt,
+      generatorMeta,
+      paginationDetected
     };
 
   } catch (error) {
