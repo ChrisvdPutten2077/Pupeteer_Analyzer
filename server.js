@@ -30,8 +30,9 @@ app.post('/analyze', async (req, res) => {
 async function analyzeUrl(url) {
   let browser;
   try {
+    // Launch Puppeteer using the new headless mode to address deprecation warnings
     browser = await puppeteer.launch({
-      headless: true,
+      headless: 'new',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -40,10 +41,13 @@ async function analyzeUrl(url) {
     });
 
     const page = await browser.newPage();
+
+    // Increase the navigation timeout to 60 seconds
+    page.setDefaultNavigationTimeout(60000);
+
     const startTime = Date.now();
-    // Use 'domcontentloaded' with a shorter timeout since the main content loads quickly.
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    const loadTime = (Date.now() - startTime) / 1000; // seconds
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+    const loadTime = (Date.now() - startTime) / 1000; // in seconds
 
     // 1. Page Title
     const title = await page.title();
@@ -87,7 +91,7 @@ async function analyzeUrl(url) {
       hasH1 = false;
     }
 
-    // 8. Detect jQuery version, if loaded
+    // 8. Detect jQuery version if loaded
     let jqueryVersion = 'Not detected';
     try {
       jqueryVersion = await page.evaluate(() => window.jQuery ? jQuery.fn.jquery : 'Not detected');
@@ -121,9 +125,7 @@ async function analyzeUrl(url) {
     console.error('Error analyzing URL:', url, error);
     return { url, error: `Could not load the page: ${error.message}` };
   } finally {
-    if (browser) {
-      await browser.close();
-    }
+    if (browser) await browser.close();
   }
 }
 
