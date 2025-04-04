@@ -36,22 +36,22 @@ async function analyzeUrl(url) {
     });
     const page = await browser.newPage();
 
-    // Mobiele emulatie en throttling voor realistische laadtijd
-    await page.emulate(puppeteer.devices['Moto G4']); // Vergelijkbaar met PSI's Moto G Power
+    // Mobiele emulatie en throttling
+    await page.emulate(puppeteer.devices['Moto G4']);
     await page.emulateNetworkConditions(puppeteer.networkConditions['Slow 4G']);
 
     // Log API-verzoeken
     const apiRequests = new Set();
     page.on('request', request => {
-      const url = request.url().toLowerCase();
-      if (url.includes('/api/') || url.includes('graphql') || url.includes('rest')) {
-        apiRequests.add(url);
+      const reqUrl = request.url().toLowerCase();
+      if (reqUrl.includes('/api/') || reqUrl.includes('graphql') || reqUrl.includes('rest')) {
+        apiRequests.add(reqUrl);
       }
     });
 
     const startTime = Date.now();
     await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
-    await page.waitForTimeout(2000); // 2s extra voor JS-rendering
+    await page.waitForTimeout(2000); // Wacht op JS-rendering
     const loadTime = (Date.now() - startTime) / 1000;
 
     const title = await page.title();
@@ -70,23 +70,48 @@ async function analyzeUrl(url) {
       return jsonLd + microdata;
     });
 
-    const productCount = await page.evaluate(() => {
-      const selectors = [
-        '.product', '.product-item', '.item', '.product-card',
-        '.shop-item', '.grid-item', '.card', '.listing',
-        '.prod', '[data-product]', '.product-list', '.shop-product'
-      ];
-      let count = 0;
-      selectors.forEach(sel => {
-        count += document.querySelectorAll(sel).length;
+    // Producten tellen op de huidige pagina
+    const countProductsOnPage = async () => {
+      return await page.evaluate(() => {
+        const selectors = [
+          '.product', '.product-item', '.item', '.product-card',
+          '.shop-item', '.grid-item', '.card', '.listing',
+          '.prod', '[data-product]', '.product-list', '.shop-product'
+        ];
+        let count = 0;
+        selectors.forEach(sel => {
+          count += document.querySelectorAll(sel).length;
+        });
+        const productLinks = document.querySelectorAll('a[href*="product"], a[href*="shop"]').length;
+        const textCount = Array.from(document.querySelectorAll('*'))
+          .filter(el => el.textContent.toLowerCase().includes('product') && el.children.length === 0).length;
+        return Math.max(count, productLinks, Math.floor(textCount / 2));
       });
-      // Extra: links naar productpagina’s
-      const productLinks = document.querySelectorAll('a[href*="product"], a[href*="shop"]').length;
-      // Tekstanalyse als fallback
-      const textCount = Array.from(document.querySelectorAll('*'))
-        .filter(el => el.textContent.toLowerCase().includes('product') && el.children.length === 0).length;
-      return Math.max(count, productLinks, Math.floor(textCount / 2));
+    };
+
+    // Producten op homepagina
+    let totalProductCount = await countProductsOnPage();
+
+    // Vind menu-links en tel producten op subpagina’s
+    const menuLinks = await page.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('header a, nav a'));
+      return links
+        .map(link => link.href)
+        .filter(href => href && href.includes(window.location.origin) && !href.includes('contact') && !href.includes('onderhoud'))
+        .filter((href, index, self) => self.indexOf(href) === index); // Unieke links
     });
+
+    // Bezoek subpagina’s en tel producten
+    for (const link of menuLinks) {
+      try {
+        await page.goto(link, { waitUntil: 'networkidle0', timeout: 15000 });
+        await page.waitForTimeout(1000);
+        const subPageCount = await countProductsOnPage();
+        totalProductCount += subPageCount;
+      } catch (err) {
+        console.log(`Kon subpagina niet laden: ${link}`);
+      }
+    }
 
     const apiUsage = apiRequests.size > 0;
 
@@ -96,7 +121,7 @@ async function analyzeUrl(url) {
       title,
       metaDescription,
       structuredDataCount,
-      productCount,
+      productCount: totalProductCount,
       apiUsage
     };
   } catch (error) {
