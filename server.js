@@ -31,57 +31,59 @@ async function analyzeUrl(url) {
   let browser;
   try {
     browser = await puppeteer.launch({
-      headless: true, // or 'new' if you want to opt into Puppeteer's new headless mode
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage'
-      ]
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
-
     const page = await browser.newPage();
-
-    // Shorter, simpler wait condition to avoid timeouts
     page.setDefaultNavigationTimeout(30000);
 
-    const startTime = Date.now();
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    const loadTime = (Date.now() - startTime) / 1000; // in seconds
+    // Log netwerkverzoeken voor apiUsage
+    const apiRequests = new Set();
+    page.on('request', request => {
+      if (request.url().includes('/api/') || request.url().includes('graphql')) {
+        apiRequests.add(request.url());
+      }
+    });
 
-    // 1. Page Title
+    const startTime = Date.now();
+    await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 }); // Volledige laadtijd
+    const loadTime = (Date.now() - startTime) / 1000;
+
+    // Wacht kort op dynamische titelupdates
+    await page.waitForTimeout(1000); // 1 seconde extra voor JS
     const title = await page.title();
 
-    // 2. Meta Description
-    let metaDescription = '';
+    // Meta Description, breder zoeken
+    let metaDescription = 'No meta description found';
     try {
-      metaDescription = await page.$eval('meta[name="description"]', el => el.content);
-    } catch (err) {
-      metaDescription = 'No meta description found';
-    }
+      metaDescription = await page.$eval('meta[name="description"], meta[property="og:description"]', el => el.content);
+    } catch (err) {}
 
-    // 3. Structured Data (JSON-LD) count
-    const structuredDataCount = await page.$$eval('script[type="application/ld+json"]', scripts => scripts.length);
+    // Structured Data, meer formaten
+    const structuredDataCount = await page.evaluate(() => {
+      const jsonLd = document.querySelectorAll('script[type="application/ld+json"]').length;
+      const microdata = document.querySelectorAll('[itemscope]').length;
+      return jsonLd + microdata;
+    });
 
-    // 4. Product Count using minimal selectors
-    const productSelectors = ['.product', '.product-item', '.item', '.product-card'];
-    let productCount = 0;
-    for (const selector of productSelectors) {
-      try {
-        const count = await page.$$eval(selector, elems => elems.length);
-        productCount += count;
-      } catch (err) {
-        productCount += 0;
-      }
-    }
+    // Product Count, meer selectors en tekstanalyse
+    const productCount = await page.evaluate(() => {
+      const selectors = [
+        '.product', '.product-item', '.item', '.product-card', 
+        '.shop-item', '[data-product]', '.prod', '.listing'
+      ];
+      let count = 0;
+      selectors.forEach(sel => {
+        count += document.querySelectorAll(sel).length;
+      });
+      // Tekstanalyse als fallback
+      const textCount = Array.from(document.querySelectorAll('*'))
+        .filter(el => el.textContent.toLowerCase().includes('product') && el.children.length === 0).length;
+      return Math.max(count, textCount / 2); // Conservatieve schatting
+    });
 
-    // 5. API Usage Detection
-    let apiUsage = false;
-    try {
-      const content = await page.content();
-      apiUsage = content.includes('/api/') || content.includes('fetch(');
-    } catch (err) {
-      apiUsage = false;
-    }
+    // API Usage gebaseerd op echte verzoeken
+    const apiUsage = apiRequests.size > 0;
 
     return {
       url,
@@ -96,9 +98,7 @@ async function analyzeUrl(url) {
     console.error('Error analyzing URL:', url, error);
     return { url, error: `Could not load the page: ${error.message}` };
   } finally {
-    if (browser) {
-      await browser.close();
-    }
+    if (browser) await browser.close();
   }
 }
 
