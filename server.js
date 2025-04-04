@@ -36,11 +36,9 @@ async function analyzeUrl(url) {
     });
     const page = await browser.newPage();
 
-    // Mobiele emulatie en throttling
     await page.emulate(puppeteer.devices['Moto G4']);
     await page.emulateNetworkConditions(puppeteer.networkConditions['Slow 4G']);
 
-    // Log API-verzoeken
     const apiRequests = new Set();
     page.on('request', request => {
       const reqUrl = request.url().toLowerCase();
@@ -51,7 +49,7 @@ async function analyzeUrl(url) {
 
     const startTime = Date.now();
     await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
-    await page.waitForTimeout(2000); // Wacht op JS-rendering
+    await page.waitForTimeout(2000);
     const loadTime = (Date.now() - startTime) / 1000;
 
     const title = await page.title();
@@ -70,22 +68,41 @@ async function analyzeUrl(url) {
       return jsonLd + microdata;
     });
 
-    // Producten tellen op een pagina
+    // Producten tellen op een pagina met unieke identificatie
     const countProductsOnPage = async () => {
       return await page.evaluate(() => {
         const selectors = [
-          '.product', '.product-item', '.item', '.product-card',
+          '.product', '.product-item', '.product-card',
           '.shop-item', '.grid-item', '.card', '.listing',
-          '.prod', '[data-product]', '.product-list', '.shop-product'
+          '[data-product]', '.product-list', '.shop-product'
         ];
-        let count = 0;
+        const productElements = new Set();
+        
+        // Selectors voor productelementen
         selectors.forEach(sel => {
-          count += document.querySelectorAll(sel).length;
+          document.querySelectorAll(sel).forEach(el => {
+            // Probeer een unieke identifier te vinden (bijv. productnaam of ID)
+            const name = el.querySelector('h2, h3, .name, .title')?.textContent?.trim().toLowerCase() || el.textContent.trim().toLowerCase();
+            if (name && name.length > 2) { // Zorg dat het geen lege of te korte naam is
+              productElements.add(name);
+            }
+          });
         });
-        const productLinks = document.querySelectorAll('a[href*="product"], a[href*="shop"]').length;
-        const textCount = Array.from(document.querySelectorAll('*'))
+
+        // Extra: links naar productpagina’s
+        const productLinks = document.querySelectorAll('a[href*="product"], a[href*="shop"]');
+        productLinks.forEach(link => {
+          const name = link.textContent.trim().toLowerCase();
+          if (name && name.length > 2) {
+            productElements.add(name);
+          }
+        });
+
+        // Tekstanalyse als fallback, maar minder agressief
+        const textCount = Array.from(document.querySelectorAll('h2, h3, .name, .title'))
           .filter(el => el.textContent.toLowerCase().includes('product') && el.children.length === 0).length;
-        return Math.max(count, productLinks, Math.floor(textCount / 2));
+
+        return productElements.size + Math.floor(textCount / 4); // Conservatiever met tekst
       });
     };
 
@@ -95,7 +112,6 @@ async function analyzeUrl(url) {
 
     // Vind menu-items in de header
     const menuLinks = await page.evaluate(() => {
-      // Target specifiek de header en zoek naar links
       const headerLinks = Array.from(document.querySelectorAll('header a, nav a, .header a, .nav a'));
       return headerLinks
         .map(link => ({
@@ -104,14 +120,14 @@ async function analyzeUrl(url) {
         }))
         .filter(item => 
           item.href && 
-          item.href.includes(window.location.origin) && // Alleen links binnen domein
+          item.href.includes(window.location.origin) &&
           !item.text.includes('contact') && 
           !item.text.includes('onderhoud') && 
-          !item.href.includes('#') && // Geen ankerlinks
-          item.href !== window.location.href // Geen homepagina
+          !item.href.includes('#') &&
+          item.href !== window.location.href
         )
         .filter((item, index, self) => 
-          self.findIndex(i => i.href === item.href) === index // Unieke links
+          self.findIndex(i => i.href === item.href) === index
         );
     });
 
