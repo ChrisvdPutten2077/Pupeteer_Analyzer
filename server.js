@@ -69,22 +69,27 @@ async function analyzeUrl(url) {
     });
 
     // Producten tellen op een pagina met unieke identificatie
-    const countProductsOnPage = async () => {
+    const countProductsOnPage = async (pageUrl) => {
       return await page.evaluate(() => {
         const selectors = [
           '.product', '.product-item', '.product-card',
           '.shop-item', '.grid-item', '.card', '.listing',
           '[data-product]', '.product-list', '.shop-product'
         ];
-        const productElements = new Set();
-        
-        // Selectors voor productelementen
+        const products = new Set();
+
         selectors.forEach(sel => {
           document.querySelectorAll(sel).forEach(el => {
-            // Probeer een unieke identifier te vinden (bijv. productnaam of ID)
-            const name = el.querySelector('h2, h3, .name, .title')?.textContent?.trim().toLowerCase() || el.textContent.trim().toLowerCase();
-            if (name && name.length > 2) { // Zorg dat het geen lege of te korte naam is
-              productElements.add(name);
+            // Probeer een unieke identifier te vinden
+            const name = el.querySelector('h2, h3, .name, .title')?.textContent?.trim().toLowerCase() || '';
+            const price = el.querySelector('.price, .amount, [class*="price"]')?.textContent?.trim().toLowerCase() || '';
+            const id = el.getAttribute('data-product-id') || el.getAttribute('id') || '';
+            const link = el.querySelector('a')?.href || '';
+
+            // Combineer naam, prijs, ID en link voor een unieke identifier
+            const identifier = `${name}-${price}-${id}-${link}`.trim();
+            if (identifier && name.length > 2) { // Zorg dat er een naam is en niet te kort
+              products.add(identifier);
             }
           });
         });
@@ -93,22 +98,24 @@ async function analyzeUrl(url) {
         const productLinks = document.querySelectorAll('a[href*="product"], a[href*="shop"]');
         productLinks.forEach(link => {
           const name = link.textContent.trim().toLowerCase();
+          const href = link.href;
+          const identifier = `${name}-${href}`.trim();
           if (name && name.length > 2) {
-            productElements.add(name);
+            products.add(identifier);
           }
         });
 
-        // Tekstanalyse als fallback, maar minder agressief
-        const textCount = Array.from(document.querySelectorAll('h2, h3, .name, .title'))
-          .filter(el => el.textContent.toLowerCase().includes('product') && el.children.length === 0).length;
-
-        return productElements.size + Math.floor(textCount / 4); // Conservatiever met tekst
+        return Array.from(products);
       });
     };
 
+    // Unieke producten over alle pagina’s
+    const allProducts = new Set();
+
     // Producten op homepagina
-    let totalProductCount = await countProductsOnPage();
-    console.log(`Homepagina (${url}): ${totalProductCount} producten`);
+    let homeProducts = await countProductsOnPage(url);
+    homeProducts.forEach(product => allProducts.add(product));
+    console.log(`Homepagina (${url}): ${homeProducts.length} producten`);
 
     // Vind menu-items in de header
     const menuLinks = await page.evaluate(() => {
@@ -137,9 +144,9 @@ async function analyzeUrl(url) {
         console.log(`Bezoek subpagina: ${menuItem.href} (${menuItem.text})`);
         await page.goto(menuItem.href, { waitUntil: 'networkidle0', timeout: 15000 });
         await page.waitForTimeout(1000);
-        const subPageCount = await countProductsOnPage();
-        console.log(`Subpagina ${menuItem.href}: ${subPageCount} producten`);
-        totalProductCount += subPageCount;
+        const subPageProducts = await countProductsOnPage(menuItem.href);
+        subPageProducts.forEach(product => allProducts.add(product));
+        console.log(`Subpagina ${menuItem.href}: ${subPageProducts.length} producten`);
       } catch (err) {
         console.log(`Kon subpagina niet laden: ${menuItem.href} - ${err.message}`);
       }
@@ -153,7 +160,7 @@ async function analyzeUrl(url) {
       title,
       metaDescription,
       structuredDataCount,
-      productCount: totalProductCount,
+      productCount: allProducts.size,
       apiUsage
     };
   } catch (error) {
