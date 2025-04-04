@@ -36,6 +36,7 @@ async function analyzeUrl(url) {
     });
     const page = await browser.newPage();
 
+    // Emulatie van een mobiel apparaat en langzame netwerkcondities
     await page.emulate(puppeteer.devices['Moto G4']);
     await page.emulateNetworkConditions(puppeteer.networkConditions['Slow 4G']);
 
@@ -62,13 +63,33 @@ async function analyzeUrl(url) {
       );
     } catch (err) {}
 
+    // Tel de gestructureerde data-elementen (JSON-LD en microdata)
     const structuredDataCount = await page.evaluate(() => {
       const jsonLd = document.querySelectorAll('script[type="application/ld+json"]').length;
       const microdata = document.querySelectorAll('[itemscope]').length;
       return jsonLd + microdata;
     });
 
-    // Producten tellen op een pagina, alleen zichtbare elementen
+    // Haal JSON‑LD data op voor PIM-integratie en controleer of er Product-data aanwezig is
+    const jsonLdData = await page.evaluate(() => {
+      const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+      return scripts.map(script => {
+        try {
+          return JSON.parse(script.innerText);
+        } catch (e) {
+          return null;
+        }
+      }).filter(data => data !== null);
+    });
+    const jsonLdProducts = jsonLdData.filter(data => {
+      if (Array.isArray(data)) {
+        return data.some(item => item['@type'] === 'Product');
+      } else {
+        return data['@type'] === 'Product';
+      }
+    });
+
+    // Functie om producten op een pagina op te halen met extra details
     const countProductsOnPage = async (pageUrl) => {
       return await page.evaluate(() => {
         const selectors = [
@@ -76,32 +97,32 @@ async function analyzeUrl(url) {
           '.shop-item', '.grid-item', '[data-product]', 
           '.product-list', '.shop-product'
         ];
-        const products = new Set();
+        const productsMap = new Map();
 
         selectors.forEach(sel => {
           document.querySelectorAll(sel).forEach(el => {
             // Controleer of het element zichtbaar is
             const style = window.getComputedStyle(el);
             if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-              return; // Sla onzichtbare elementen over
+              return;
             }
 
-            // Probeer een unieke identifier te vinden
-            const name = el.querySelector('h2, h3, .name, .title')?.textContent?.trim().toLowerCase() || '';
-            const price = el.querySelector('.price, .amount, [class*="price"]')?.textContent?.trim().toLowerCase() || '';
+            // Haal productdetails op
+            const name = el.querySelector('h2, h3, .name, .title')?.textContent?.trim() || '';
+            const price = el.querySelector('.price, .amount, [class*="price"]')?.textContent?.trim() || '';
             const id = el.getAttribute('data-product-id') || el.getAttribute('id') || '';
             const link = el.querySelector('a')?.href || '';
 
-            const cleanName = name.replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+            const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim();
             const identifier = id ? id : `${cleanName}-${price}-${link}`.trim();
 
             if (cleanName && cleanName.length > 2) {
-              products.add(identifier);
+              productsMap.set(identifier, { id: identifier, name, price, link });
             }
           });
         });
 
-        // Links naar productpagina’s, alleen zichtbare
+        // Ook productlinks uit anchor tags, als extra bron
         const productLinks = document.querySelectorAll('a[href*="product"], a[href*="/shop/"]');
         productLinks.forEach(link => {
           const style = window.getComputedStyle(link);
@@ -109,28 +130,28 @@ async function analyzeUrl(url) {
             return;
           }
 
-          const name = link.textContent.trim().toLowerCase();
+          const name = link.textContent.trim();
           const href = link.href;
-          const cleanName = name.replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+          const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim();
           const identifier = `${cleanName}-${href}`.trim();
-          if (cleanName && cleanName.length > 2 && !cleanName.includes('categorie') && !cleanName.includes('alle')) {
-            products.add(identifier);
+          if (cleanName && cleanName.length > 2 && !cleanName.toLowerCase().includes('categorie') && !cleanName.toLowerCase().includes('alle')) {
+            productsMap.set(identifier, { id: identifier, name, price: '', link: href });
           }
         });
 
-        return Array.from(products);
+        return Array.from(productsMap.values());
       });
     };
 
-    // Unieke producten over alle pagina’s
-    const allProducts = new Set();
+    // Verzamelen van unieke producten (inclusief details) over alle pagina’s
+    const allProductsMap = new Map();
 
     // Producten op homepagina
     let homeProducts = await countProductsOnPage(url);
-    homeProducts.forEach(product => allProducts.add(product));
+    homeProducts.forEach(product => allProductsMap.set(product.id, product));
     console.log(`Homepagina (${url}): ${homeProducts.length} producten`);
 
-    // Vind menu-items in de header
+    // Vind menu-items in de header om subpagina's te ontdekken
     const menuLinks = await page.evaluate(() => {
       const headerLinks = Array.from(document.querySelectorAll('header a, nav a, .header a, .nav a'));
       return headerLinks
@@ -151,14 +172,14 @@ async function analyzeUrl(url) {
         );
     });
 
-    // Bezoek subpagina’s (1 layer diep)
+    // Bezoek subpagina’s (1 layer diep) en voeg hun producten toe
     for (const menuItem of menuLinks) {
       try {
         console.log(`Bezoek subpagina: ${menuItem.href} (${menuItem.text})`);
         await page.goto(menuItem.href, { waitUntil: 'networkidle0', timeout: 15000 });
         await page.waitForTimeout(1000);
         const subPageProducts = await countProductsOnPage(menuItem.href);
-        subPageProducts.forEach(product => allProducts.add(product));
+        subPageProducts.forEach(product => allProductsMap.set(product.id, product));
         console.log(`Subpagina ${menuItem.href}: ${subPageProducts.length} producten`);
       } catch (err) {
         console.log(`Kon subpagina niet laden: ${menuItem.href} - ${err.message}`);
@@ -173,8 +194,12 @@ async function analyzeUrl(url) {
       title,
       metaDescription,
       structuredDataCount,
-      productCount: allProducts.size,
-      apiUsage
+      productCount: allProductsMap.size,
+      productDetails: Array.from(allProductsMap.values()),
+      apiUsage,
+      // Indicatoren voor headless/PIM integratie
+      pimDataAvailable: jsonLdProducts.length > 0,
+      jsonLdProductsCount: jsonLdProducts.length
     };
   } catch (error) {
     console.error('Error analyzing URL:', url, error);
