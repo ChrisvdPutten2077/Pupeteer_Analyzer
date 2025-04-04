@@ -70,7 +70,7 @@ async function analyzeUrl(url) {
       return jsonLd + microdata;
     });
 
-    // Producten tellen op de huidige pagina
+    // Producten tellen op een pagina
     const countProductsOnPage = async () => {
       return await page.evaluate(() => {
         const selectors = [
@@ -91,25 +91,41 @@ async function analyzeUrl(url) {
 
     // Producten op homepagina
     let totalProductCount = await countProductsOnPage();
+    console.log(`Homepagina (${url}): ${totalProductCount} producten`);
 
-    // Vind menu-links en tel producten op subpagina’s
+    // Vind menu-items in de header
     const menuLinks = await page.evaluate(() => {
-      const links = Array.from(document.querySelectorAll('header a, nav a'));
-      return links
-        .map(link => link.href)
-        .filter(href => href && href.includes(window.location.origin) && !href.includes('contact') && !href.includes('onderhoud'))
-        .filter((href, index, self) => self.indexOf(href) === index); // Unieke links
+      // Target specifiek de header en zoek naar links
+      const headerLinks = Array.from(document.querySelectorAll('header a, nav a, .header a, .nav a'));
+      return headerLinks
+        .map(link => ({
+          href: link.href,
+          text: link.textContent.trim().toLowerCase()
+        }))
+        .filter(item => 
+          item.href && 
+          item.href.includes(window.location.origin) && // Alleen links binnen domein
+          !item.text.includes('contact') && 
+          !item.text.includes('onderhoud') && 
+          !item.href.includes('#') && // Geen ankerlinks
+          item.href !== window.location.href // Geen homepagina
+        )
+        .filter((item, index, self) => 
+          self.findIndex(i => i.href === item.href) === index // Unieke links
+        );
     });
 
-    // Bezoek subpagina’s en tel producten
-    for (const link of menuLinks) {
+    // Bezoek subpagina’s (1 layer diep)
+    for (const menuItem of menuLinks) {
       try {
-        await page.goto(link, { waitUntil: 'networkidle0', timeout: 15000 });
+        console.log(`Bezoek subpagina: ${menuItem.href} (${menuItem.text})`);
+        await page.goto(menuItem.href, { waitUntil: 'networkidle0', timeout: 15000 });
         await page.waitForTimeout(1000);
         const subPageCount = await countProductsOnPage();
+        console.log(`Subpagina ${menuItem.href}: ${subPageCount} producten`);
         totalProductCount += subPageCount;
       } catch (err) {
-        console.log(`Kon subpagina niet laden: ${link}`);
+        console.log(`Kon subpagina niet laden: ${menuItem.href} - ${err.message}`);
       }
     }
 
