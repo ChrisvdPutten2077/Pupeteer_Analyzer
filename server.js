@@ -83,30 +83,25 @@ async function analyzeUrl(url) {
             // Controleer of het element zichtbaar is
             const style = window.getComputedStyle(el);
             if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-              return;
-            }
-
-            // Controleer of het element een prijs heeft (typisch voor producten)
-            const price = el.querySelector('.price, .amount, [class*="price"]')?.textContent?.trim().toLowerCase() || '';
-            if (!price) {
-              return; // Sla elementen zonder prijs over
+              return; // Sla onzichtbare elementen over
             }
 
             // Probeer een unieke identifier te vinden
             const name = el.querySelector('h2, h3, .name, .title')?.textContent?.trim().toLowerCase() || '';
+            const price = el.querySelector('.price, .amount, [class*="price"]')?.textContent?.trim().toLowerCase() || '';
             const id = el.getAttribute('data-product-id') || el.getAttribute('id') || '';
             const link = el.querySelector('a')?.href || '';
 
             const cleanName = name.replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
-            const identifier = id ? id : `${cleanName}-${price}`.trim(); // Gebruik prijs in identifier
+            const identifier = id ? id : `${cleanName}-${price}-${link}`.trim();
 
-            if (cleanName && cleanName.length > 2 && !cleanName.includes('categorie') && !cleanName.includes('alle')) {
+            if (cleanName && cleanName.length > 2) {
               products.add(identifier);
             }
           });
         });
 
-        // Links naar productpagina’s, alleen zichtbare en met prijs
+        // Links naar productpagina’s, alleen zichtbare
         const productLinks = document.querySelectorAll('a[href*="product"], a[href*="/shop/"]');
         productLinks.forEach(link => {
           const style = window.getComputedStyle(link);
@@ -117,12 +112,7 @@ async function analyzeUrl(url) {
           const name = link.textContent.trim().toLowerCase();
           const href = link.href;
           const cleanName = name.replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
-          const price = link.parentElement?.querySelector('.price, .amount, [class*="price"]')?.textContent?.trim().toLowerCase() || '';
-          if (!price) {
-            return; // Sla links zonder prijs over
-          }
-
-          const identifier = `${cleanName}-${price}`.trim();
+          const identifier = `${cleanName}-${href}`.trim();
           if (cleanName && cleanName.length > 2 && !cleanName.includes('categorie') && !cleanName.includes('alle')) {
             products.add(identifier);
           }
@@ -188,7 +178,7 @@ async function analyzeUrl(url) {
     };
   } catch (error) {
     console.error('Error analyzing URL:', url, error);
-    return { url, error: `Could not load the page: ${error.message}` });
+    return { url, error: `Could not load the page: ${error.message}` };
   } finally {
     if (browser) await browser.close();
   }
