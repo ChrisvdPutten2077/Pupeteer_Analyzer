@@ -68,39 +68,52 @@ async function analyzeUrl(url) {
       return jsonLd + microdata;
     });
 
-    // Producten tellen op een pagina met unieke identificatie
+    // Producten tellen op een pagina, alleen zichtbare elementen
     const countProductsOnPage = async (pageUrl) => {
       return await page.evaluate(() => {
         const selectors = [
           '.product', '.product-item', '.product-card',
-          '.shop-item', '.grid-item', '.card', '.listing',
-          '[data-product]', '.product-list', '.shop-product'
+          '.shop-item', '.grid-item', '[data-product]', 
+          '.product-list', '.shop-product'
         ];
         const products = new Set();
 
         selectors.forEach(sel => {
           document.querySelectorAll(sel).forEach(el => {
+            // Controleer of het element zichtbaar is
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+              return; // Sla onzichtbare elementen over
+            }
+
             // Probeer een unieke identifier te vinden
             const name = el.querySelector('h2, h3, .name, .title')?.textContent?.trim().toLowerCase() || '';
             const price = el.querySelector('.price, .amount, [class*="price"]')?.textContent?.trim().toLowerCase() || '';
             const id = el.getAttribute('data-product-id') || el.getAttribute('id') || '';
             const link = el.querySelector('a')?.href || '';
 
-            // Combineer naam, prijs, ID en link voor een unieke identifier
-            const identifier = `${name}-${price}-${id}-${link}`.trim();
-            if (identifier && name.length > 2) { // Zorg dat er een naam is en niet te kort
+            const cleanName = name.replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+            const identifier = id ? id : `${cleanName}-${price}-${link}`.trim();
+
+            if (cleanName && cleanName.length > 2) {
               products.add(identifier);
             }
           });
         });
 
-        // Extra: links naar productpagina’s
-        const productLinks = document.querySelectorAll('a[href*="product"], a[href*="shop"]');
+        // Links naar productpagina’s, alleen zichtbare
+        const productLinks = document.querySelectorAll('a[href*="product"], a[href*="/shop/"]');
         productLinks.forEach(link => {
+          const style = window.getComputedStyle(link);
+          if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+            return;
+          }
+
           const name = link.textContent.trim().toLowerCase();
           const href = link.href;
-          const identifier = `${name}-${href}`.trim();
-          if (name && name.length > 2) {
+          const cleanName = name.replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+          const identifier = `${cleanName}-${href}`.trim();
+          if (cleanName && cleanName.length > 2 && !cleanName.includes('categorie') && !cleanName.includes('alle')) {
             products.add(identifier);
           }
         });
