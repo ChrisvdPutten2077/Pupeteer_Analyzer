@@ -36,7 +36,7 @@ async function analyzeUrl(url) {
     });
     const page = await browser.newPage();
 
-    // Emulatie van een mobiel apparaat en langzame netwerkcondities
+    // Emuleer een mobiel apparaat en langzame netwerkcondities
     await page.emulate(puppeteer.devices['Moto G4']);
     await page.emulateNetworkConditions(puppeteer.networkConditions['Slow 4G']);
 
@@ -70,7 +70,7 @@ async function analyzeUrl(url) {
       return jsonLd + microdata;
     });
 
-    // Haal JSON‑LD data op voor PIM-integratie en controleer of er Product-data aanwezig is
+    // Haal JSON‑LD data op voor PIM-integratie en controleer op productdata
     const jsonLdData = await page.evaluate(() => {
       const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
       return scripts.map(script => {
@@ -122,7 +122,7 @@ async function analyzeUrl(url) {
           });
         });
 
-        // Ook productlinks uit anchor tags, als extra bron
+        // Voeg ook productlinks uit anchor tags toe, als extra bron
         const productLinks = document.querySelectorAll('a[href*="product"], a[href*="/shop/"]');
         productLinks.forEach(link => {
           const style = window.getComputedStyle(link);
@@ -186,7 +186,15 @@ async function analyzeUrl(url) {
       }
     }
 
+    const productCount = allProductsMap.size;
+    // Safe estimate: als er 100 of meer producten zijn, geven we “meer dan 100” terug.
+    const safeProductEstimate = productCount >= 100 ? "meer dan 100" : productCount;
+
     const apiUsage = apiRequests.size > 0;
+    let extraObservation = "";
+    if (!apiUsage) {
+      extraObservation = "We hebben opgemerkt dat er geen API-koppelingen aanwezig zijn, wat erop wijst dat jullie mogelijk nog geen geïntegreerd systeem voor realtime data, zoals een headless/PIM-oplossing, gebruiken.";
+    }
 
     return {
       url,
@@ -194,12 +202,14 @@ async function analyzeUrl(url) {
       title,
       metaDescription,
       structuredDataCount,
-      productCount: allProductsMap.size,
+      productCount,
+      safeProductEstimate,
       productDetails: Array.from(allProductsMap.values()),
       apiUsage,
       // Indicatoren voor headless/PIM integratie
       pimDataAvailable: jsonLdProducts.length > 0,
-      jsonLdProductsCount: jsonLdProducts.length
+      jsonLdProductsCount: jsonLdProducts.length,
+      extraObservation
     };
   } catch (error) {
     console.error('Error analyzing URL:', url, error);
