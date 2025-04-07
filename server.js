@@ -1,32 +1,3 @@
-const express = require('express');
-const puppeteer = require('puppeteer');
-
-const app = express();
-app.use(express.json());
-
-app.post('/analyze', async (req, res) => {
-  try {
-    const { urls } = req.body;
-    if (!urls || !Array.isArray(urls)) {
-      return res.status(400).json({ error: 'Body must contain an array "urls"' });
-    }
-
-    const results = [];
-    for (const url of urls) {
-      if (!url.startsWith('http')) {
-        results.push({ url, error: 'Invalid URL format' });
-        continue;
-      }
-      const result = await analyzeUrl(url);
-      results.push(result);
-    }
-    res.json(results);
-  } catch (err) {
-    console.error('Error in /analyze endpoint:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 async function analyzeUrl(url) {
   let browser;
   try {
@@ -80,25 +51,22 @@ async function analyzeUrl(url) {
 
         selectors.forEach(sel => {
           document.querySelectorAll(sel).forEach(el => {
-            // Controleer of het element zichtbaar is
             const style = window.getComputedStyle(el);
             if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
               return;
             }
 
-            // Controleer of het element een prijs heeft (typisch voor producten)
             const price = el.querySelector('.price, .amount, [class*="price"]')?.textContent?.trim().toLowerCase() || '';
             if (!price) {
-              return; // Sla elementen zonder prijs over
+              return;
             }
 
-            // Probeer een unieke identifier te vinden
             const name = el.querySelector('h2, h3, .name, .title')?.textContent?.trim().toLowerCase() || '';
             const id = el.getAttribute('data-product-id') || el.getAttribute('id') || '';
             const link = el.querySelector('a')?.href || '';
 
             const cleanName = name.replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
-            const identifier = id ? id : `${cleanName}-${price}`.trim(); // Gebruik prijs in identifier
+            const identifier = id ? id : `${cleanName}-${price}`.trim();
 
             if (cleanName && cleanName.length > 2 && !cleanName.includes('categorie') && !cleanName.includes('alle')) {
               products.add(identifier);
@@ -106,7 +74,6 @@ async function analyzeUrl(url) {
           });
         });
 
-        // Links naar productpagina’s, alleen zichtbare en met prijs
         const productLinks = document.querySelectorAll('a[href*="product"], a[href*="/shop/"]');
         productLinks.forEach(link => {
           const style = window.getComputedStyle(link);
@@ -119,7 +86,7 @@ async function analyzeUrl(url) {
           const cleanName = name.replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
           const price = link.parentElement?.querySelector('.price, .amount, [class*="price"]')?.textContent?.trim().toLowerCase() || '';
           if (!price) {
-            return; // Sla links zonder prijs over
+            return;
           }
 
           const identifier = `${cleanName}-${price}`.trim();
@@ -132,15 +99,12 @@ async function analyzeUrl(url) {
       });
     };
 
-    // Unieke producten over alle pagina’s
     const allProducts = new Set();
 
-    // Producten op homepagina
     let homeProducts = await countProductsOnPage(url);
     homeProducts.forEach(product => allProducts.add(product));
     console.log(`Homepagina (${url}): ${homeProducts.length} producten`);
 
-    // Vind menu-items in de header
     const menuLinks = await page.evaluate(() => {
       const headerLinks = Array.from(document.querySelectorAll('header a, nav a, .header a, .nav a'));
       return headerLinks
@@ -161,7 +125,6 @@ async function analyzeUrl(url) {
         );
     });
 
-    // Bezoek subpagina’s (1 layer diep)
     for (const menuItem of menuLinks) {
       try {
         console.log(`Bezoek subpagina: ${menuItem.href} (${menuItem.text})`);
@@ -188,13 +151,8 @@ async function analyzeUrl(url) {
     };
   } catch (error) {
     console.error('Error analyzing URL:', url, error);
-    return { url, error: `Could not load the page: ${error.message}` });
+    return { url, error: `Could not load the page: ${error.message}` }; // Verwijderd extra haakje
   } finally {
     if (browser) await browser.close();
   }
 }
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
