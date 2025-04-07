@@ -29,7 +29,7 @@ app.post('/analyze', async (req, res) => {
 
 async function analyzeUrl(url) {
   let browser;
-  let retries = 2; // Aantal pogingen
+  let retries = 2;
   let attempt = 0;
 
   while (attempt < retries) {
@@ -40,7 +40,6 @@ async function analyzeUrl(url) {
       });
       const page = await browser.newPage();
 
-      // Stel een user-agent en extra headers in om botdetectie te vermijden
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
       await page.setExtraHTTPHeaders({
         'Accept-Language': 'en-US,en;q=0.9',
@@ -101,7 +100,7 @@ async function analyzeUrl(url) {
         });
       } catch (err) {
         console.error(`Failed to load page ${url} on attempt ${attempt + 1}:`, err.message);
-        throw err; // Gooi de fout om een retry te triggeren
+        throw err;
       }
 
       const extractCategoryCounts = async () => {
@@ -285,7 +284,6 @@ async function analyzeUrl(url) {
       attempt++;
       if (browser) await browser.close();
       if (attempt === retries) {
-        // Fallback-output
         if (url === 'http://www.tenkatetextiel.nl/') {
           return {
             url,
@@ -320,11 +318,10 @@ async function analyzeUrl(url) {
           extraObservation: "The website could not be analyzed due to loading issues."
         };
       }
-      // Wacht even voordat je opnieuw probeert
       await new Promise(resolve => setTimeout(resolve, 2000));
+    } finally {
+      if (browser) await browser.close();
     }
-  } finally {
-    if (browser) await browser.close();
   }
 }
 
