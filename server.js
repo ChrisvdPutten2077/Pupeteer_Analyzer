@@ -1,3 +1,32 @@
+const express = require('express');
+const puppeteer = require('puppeteer');
+
+const app = express();
+app.use(express.json());
+
+app.post('/analyze', async (req, res) => {
+  try {
+    const { urls } = req.body;
+    if (!urls || !Array.isArray(urls)) {
+      return res.status(400).json({ error: 'Body must contain an array "urls"' });
+    }
+
+    const results = [];
+    for (const url of urls) {
+      if (!url.startsWith('http')) {
+        results.push({ url, error: 'Invalid URL format' });
+        continue;
+      }
+      const result = await analyzeUrl(url);
+      results.push(result);
+    }
+    res.json(results);
+  } catch (err) {
+    console.error('Error in /analyze endpoint:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 async function analyzeUrl(url) {
   let browser;
   try {
@@ -39,7 +68,6 @@ async function analyzeUrl(url) {
       return jsonLd + microdata;
     });
 
-    // Producten tellen op een pagina, alleen zichtbare elementen
     const countProductsOnPage = async (pageUrl) => {
       return await page.evaluate(() => {
         const selectors = [
@@ -151,8 +179,14 @@ async function analyzeUrl(url) {
     };
   } catch (error) {
     console.error('Error analyzing URL:', url, error);
-    return { url, error: `Could not load the page: ${error.message}` }; // Verwijderd extra haakje
+    return { url, error: `Could not load the page: ${error.message}` };
   } finally {
     if (browser) await browser.close();
   }
 }
+
+// Luister op 0.0.0.0 en gebruik de door Render ingestelde poort
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}`);
+});
