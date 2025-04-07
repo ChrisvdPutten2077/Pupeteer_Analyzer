@@ -31,19 +31,32 @@ async function analyzeUrl(url) {
   let browser;
   let retries = 2;
   let attempt = 0;
+  const maxExecutionTime = 60000; // Maximale uitvoeringstijd: 60 seconden
+  const startTime = Date.now();
 
   while (attempt < retries) {
     try {
       browser = await puppeteer.launch({
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-blink-features=AutomationControlled', // Om botdetectie te omzeilen
+        ],
       });
       const page = await browser.newPage();
 
+      // Omzeil botdetectie
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
       await page.setExtraHTTPHeaders({
         'Accept-Language': 'en-US,en;q=0.9',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+      });
+      await page.evaluateOnNewDocument(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
       });
 
       const apiRequests = new Set();
@@ -54,7 +67,6 @@ async function analyzeUrl(url) {
         }
       });
 
-      const startTime = Date.now();
       let loadTime = null;
       let title = 'Unknown';
       let metaDescription = 'No meta description found';
@@ -62,9 +74,27 @@ async function analyzeUrl(url) {
       let jsonLdProducts = [];
 
       try {
-        await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
-        await page.waitForTimeout(2000); // Verkort om sneller te zijn
-        loadTime = (Date.now() - startTime) / 1000;
+        const pageStartTime = Date.now();
+        await page.goto(url, { waitUntil: 'networkidle0', timeout: 20000 });
+        loadTime = (Date.now() - pageStartTime) / 1000;
+
+        // Scroll om dynamische content te laden
+        await page.evaluate(async () => {
+          await new Promise(resolve => {
+            let totalHeight = 0;
+            const distance = 100;
+            const timer = setInterval(() => {
+              const scrollHeight = document.body.scrollHeight;
+              window.scrollBy(0, distance);
+              totalHeight += distance;
+              if (totalHeight >= scrollHeight) {
+                clearInterval(timer);
+                resolve();
+              }
+            }, 100);
+          });
+        });
+        await page.waitForTimeout(1000);
 
         title = await page.title();
 
@@ -106,7 +136,9 @@ async function analyzeUrl(url) {
       const extractCategoryCounts = async () => {
         try {
           return await page.evaluate(() => {
-            const categoryLinks = document.querySelectorAll('a[href*="/product-categorie/"], a[href*="/category/"], a[href*="/shop/"]');
+            const categoryLinks = document.querySelectorAll(
+              'a[href*="/product-categorie/"], a[href*="/category/"], a[href*="/shop/"], a[href*="/collections/"], a[href*="/products/"]'
+            );
             const categories = [];
 
             categoryLinks.forEach(link => {
@@ -119,7 +151,7 @@ async function analyzeUrl(url) {
               const href = link.href;
               const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim();
 
-              const match = cleanName.match(/(\d+)\s*(Producten|Items|Products)/i);
+              const match = cleanName.match(/(\d+)\s*(Producten|Items|Products|Artikelen|Goods)/i);
               if (match) {
                 const count = parseInt(match[1], 10);
                 categories.push({ name: cleanName, count, link: href });
@@ -138,9 +170,11 @@ async function analyzeUrl(url) {
         try {
           return await page.evaluate(() => {
             const selectors = [
-              '.product', '.product-item', '.product-card',
-              '.shop-item', '.grid-item', '[data-product]', 
-              '.product-list', '.shop-product', '.woocommerce-product'
+              '.product', '.product-item', '.product-card', '.shop-item', '.grid-item',
+              '[data-product]', '.product-list', '.shop-product', '.woocommerce-product',
+              '.product-grid-item', '.product-block', '.item-product', '.product-wrapper',
+              '[data-product-id]', '[itemtype="http://schema.org/Product"]', '.card-product',
+              '.product-tile', '.item', '.entry', '.product-entry'
             ];
             const productsMap = new Map();
 
@@ -152,23 +186,39 @@ async function analyzeUrl(url) {
                 }
 
                 const price = el.querySelector(
-                  '.price, .amount, [class*="price"], .woocommerce-Price-amount, .cost, [class*="cost"], [itemprop="price"], .product-price, .regular-price'
+                  '.price, .amount, [class*="price"], .woocommerce-Price-amount, .cost, [class*="cost"], [itemprop="price"], .product-price, .regular-price, .money, .price--main, .sale-price'
                 )?.textContent?.trim() || '';
 
-                const name = el.querySelector('h2, h3, .name, .title, .product-title')?.textContent?.trim() || '';
+                const name = el.querySelector(
+                  'h2, h3, h4, .name, .title, .product-title, [itemprop="name"], .product-name'
+                )?.textContent?.trim() || '';
                 const id = el.getAttribute('data-product-id') || el.getAttribute('id') || '';
                 const link = el.querySelector('a')?.href || '';
 
-                const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim();
-                const identifier = id ? id : `${cleanName}-${price}`.trim();
+                const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim().toLowerCase();
+                if (!cleanName || cleanName.length < 3) return;
+                if (
+                  cleanName.includes('categorie') ||
+                  cleanName.includes('category') ||
+                  cleanName.includes('alle') ||
+                  cleanName.includes('producten') ||
+                  cleanName.includes('webshop') ||
+                  cleanName.includes('shop now') ||
+                  cleanName.includes('view all') ||
+                  cleanName.includes('bekijk') ||
+                  cleanName.includes('meer')
+                ) return;
 
-                if (cleanName && cleanName.length > 2 && !cleanName.toLowerCase().includes('categorie') && !cleanName.toLowerCase().includes('alle') && !cleanName.toLowerCase().includes('producten')) {
+                const identifier = id ? id : `${cleanName}-${price}`.trim();
+                if (price || link) { // Vereis een prijs of een link
                   productsMap.set(identifier, { id: identifier, name, price, link });
                 }
               });
             });
 
-            const productLinks = document.querySelectorAll('a[href*="product"], a[href*="/shop/"]');
+            const productLinks = document.querySelectorAll(
+              'a[href*="product"], a[href*="/shop/"], a[href*="/products/"], a[href*="/item/"], a[href*="/p/"]'
+            );
             productLinks.forEach(link => {
               const style = window.getComputedStyle(link);
               if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
@@ -176,20 +226,31 @@ async function analyzeUrl(url) {
               }
 
               const href = link.href;
-              if (href.includes('/product-categorie/') || href.includes('/category/')) {
+              if (href.includes('/product-categorie/') || href.includes('/category/') || href.includes('/shop/') || href.includes('/collections/')) {
                 return;
               }
 
               const name = link.textContent.trim();
-              const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim();
+              const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim().toLowerCase();
+              if (!cleanName || cleanName.length < 3) return;
+              if (
+                cleanName.includes('categorie') ||
+                cleanName.includes('category') ||
+                cleanName.includes('alle') ||
+                cleanName.includes('producten') ||
+                cleanName.includes('webshop') ||
+                cleanName.includes('shop now') ||
+                cleanName.includes('view all') ||
+                cleanName.includes('bekijk') ||
+                cleanName.includes('meer')
+              ) return;
+
               const price = link.parentElement?.querySelector(
-                '.price, .amount, [class*="price"], .woocommerce-Price-amount, .cost, [class*="cost"], [itemprop="price"], .product-price, .regular-price'
+                '.price, .amount, [class*="price"], .woocommerce-Price-amount, .cost, [class*="cost"], [itemprop="price"], .product-price, .regular-price, .money, .price--main, .sale-price'
               )?.textContent?.trim() || '';
 
               const identifier = `${cleanName}-${price}`.trim();
-              if (cleanName && cleanName.length > 2 && !cleanName.toLowerCase().includes('categorie') && !cleanName.toLowerCase().includes('alle') && !cleanName.toLowerCase().includes('producten')) {
-                productsMap.set(identifier, { id: identifier, name, price, link: href });
-              }
+              productsMap.set(identifier, { id: identifier, name, price, link: href });
             });
 
             return Array.from(productsMap.values());
@@ -217,9 +278,8 @@ async function analyzeUrl(url) {
         homeProducts.forEach(product => allProductsMap.set(product.id, product));
         console.log(`Homepagina (${url}): ${homeProducts.length} producten`);
 
-        // Beperk het aantal subpagina's om tijd te besparen
         const menuLinks = await page.evaluate(() => {
-          const headerLinks = Array.from(document.querySelectorAll('header a, nav a, .header a, .nav a'));
+          const headerLinks = Array.from(document.querySelectorAll('header a, nav a, .header a, .nav a, .menu a'));
           return headerLinks
             .map(link => ({
               href: link.href,
@@ -230,6 +290,8 @@ async function analyzeUrl(url) {
               item.href.includes(window.location.origin) &&
               !item.text.includes('contact') && 
               !item.text.includes('onderhoud') && 
+              !item.text.includes('about') && 
+              !item.text.includes('over') && 
               !item.href.includes('#') &&
               item.href !== window.location.href &&
               !item.href.includes('/product-categorie/') &&
@@ -238,14 +300,34 @@ async function analyzeUrl(url) {
             .filter((item, index, self) => 
               self.findIndex(i => i.href === item.href) === index
             )
-            .slice(0, 3); // Beperk tot 3 subpagina's
+            .slice(0, 2); // Beperk tot 2 subpagina's
         });
 
         for (const menuItem of menuLinks) {
+          if (Date.now() - startTime > maxExecutionTime) {
+            console.log(`Max execution time exceeded for ${url}, stopping subpage analysis`);
+            break;
+          }
+
           try {
             console.log(`Bezoek subpagina: ${menuItem.href} (${menuItem.text})`);
-            await page.goto(menuItem.href, { waitUntil: 'networkidle0', timeout: 30000 });
-            await page.waitForTimeout(2000);
+            await page.goto(menuItem.href, { waitUntil: 'networkidle0', timeout: 20000 });
+            await page.evaluate(async () => {
+              await new Promise(resolve => {
+                let totalHeight = 0;
+                const distance = 100;
+                const timer = setInterval(() => {
+                  const scrollHeight = document.body.scrollHeight;
+                  window.scrollBy(0, distance);
+                  totalHeight += distance;
+                  if (totalHeight >= scrollHeight) {
+                    clearInterval(timer);
+                    resolve();
+                  }
+                }, 100);
+              });
+            });
+            await page.waitForTimeout(1000);
             const subPageProducts = await countProductsOnPage(menuItem.href);
             subPageProducts.forEach(product => allProductsMap.set(product.id, product));
             console.log(`Subpagina ${menuItem.href}: ${subPageProducts.length} producten`);
