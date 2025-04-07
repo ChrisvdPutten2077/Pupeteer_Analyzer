@@ -42,7 +42,7 @@ async function analyzeUrl(url) {
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
-          '--disable-blink-features=AutomationControlled', // Om botdetectie te omzeilen
+          '--disable-blink-features=AutomationControlled',
         ],
       });
       const page = await browser.newPage();
@@ -75,7 +75,13 @@ async function analyzeUrl(url) {
 
       try {
         const pageStartTime = Date.now();
-        await page.goto(url, { waitUntil: 'networkidle0', timeout: 20000 });
+        // Probeer eerst met networkidle0, fallback naar domcontentloaded
+        try {
+          await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+        } catch (err) {
+          console.log(`Networkidle0 failed for ${url}, falling back to domcontentloaded`);
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        }
         loadTime = (Date.now() - pageStartTime) / 1000;
 
         // Scroll om dynamische content te laden
@@ -137,7 +143,7 @@ async function analyzeUrl(url) {
         try {
           return await page.evaluate(() => {
             const categoryLinks = document.querySelectorAll(
-              'a[href*="/product-categorie/"], a[href*="/category/"], a[href*="/shop/"], a[href*="/collections/"], a[href*="/products/"]'
+              'a[href*="/product-categorie/"], a[href*="/category/"], a[href*="/shop/"], a[href*="/collections/"], a[href*="/products/"], a[href*="/categorie/"], a'
             );
             const categories = [];
 
@@ -151,7 +157,7 @@ async function analyzeUrl(url) {
               const href = link.href;
               const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim();
 
-              const match = cleanName.match(/(\d+)\s*(Producten|Items|Products|Artikelen|Goods)/i);
+              const match = cleanName.match(/(\d+)\s*(Producten|Items|Products|Artikelen|Goods|producten)/i);
               if (match) {
                 const count = parseInt(match[1], 10);
                 categories.push({ name: cleanName, count, link: href });
@@ -210,7 +216,7 @@ async function analyzeUrl(url) {
                 ) return;
 
                 const identifier = id ? id : `${cleanName}-${price}`.trim();
-                if (price || link) { // Vereis een prijs of een link
+                if (price || link) {
                   productsMap.set(identifier, { id: identifier, name, price, link });
                 }
               });
@@ -300,7 +306,7 @@ async function analyzeUrl(url) {
             .filter((item, index, self) => 
               self.findIndex(i => i.href === item.href) === index
             )
-            .slice(0, 2); // Beperk tot 2 subpagina's
+            .slice(0, 2);
         });
 
         for (const menuItem of menuLinks) {
@@ -311,7 +317,7 @@ async function analyzeUrl(url) {
 
           try {
             console.log(`Bezoek subpagina: ${menuItem.href} (${menuItem.text})`);
-            await page.goto(menuItem.href, { waitUntil: 'networkidle0', timeout: 20000 });
+            await page.goto(menuItem.href, { waitUntil: 'networkidle0', timeout: 30000 });
             await page.evaluate(async () => {
               await new Promise(resolve => {
                 let totalHeight = 0;
