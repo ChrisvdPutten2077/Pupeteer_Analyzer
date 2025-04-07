@@ -36,8 +36,9 @@ async function analyzeUrl(url) {
     });
     const page = await browser.newPage();
 
-    // Stel een user-agent in om botdetectie te vermijden
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+    // Emuleer een mobiel apparaat en langzame netwerkcondities
+    await page.emulate(puppeteer.devices['Moto G4']);
+    await page.emulateNetworkConditions(puppeteer.networkConditions['Slow 4G']);
 
     const apiRequests = new Set();
     page.on('request', request => {
@@ -48,211 +49,145 @@ async function analyzeUrl(url) {
     });
 
     const startTime = Date.now();
-    let loadTime = null;
-    let title = 'Unknown';
+    await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+    await page.waitForTimeout(2000);
+    const loadTime = (Date.now() - startTime) / 1000;
+
+    const title = await page.title();
+
     let metaDescription = 'No meta description found';
-    let structuredDataCount = 0;
-    let jsonLdProducts = [];
-
     try {
-      await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
-      await page.waitForTimeout(5000); // Wacht op dynamische content
-      loadTime = (Date.now() - startTime) / 1000;
+      metaDescription = await page.$eval(
+        'meta[name="description"], meta[property="og:description"]',
+        el => el.content
+      );
+    } catch (err) {}
 
-      title = await page.title();
+    // Tel de gestructureerde data-elementen (JSON-LD en microdata)
+    const structuredDataCount = await page.evaluate(() => {
+      const jsonLd = document.querySelectorAll('script[type="application/ld+json"]').length;
+      const microdata = document.querySelectorAll('[itemscope]').length;
+      return jsonLd + microdata;
+    });
 
-      try {
-        metaDescription = await page.$eval(
-          'meta[name="description"], meta[property="og:description"]',
-          el => el.content
-        );
-      } catch (err) {}
-
-      structuredDataCount = await page.evaluate(() => {
-        const jsonLd = document.querySelectorAll('script[type="application/ld+json"]').length;
-        const microdata = document.querySelectorAll('[itemscope]').length;
-        return jsonLd + microdata;
-      });
-
-      const jsonLdData = await page.evaluate(() => {
-        const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
-        return scripts.map(script => {
-          try {
-            return JSON.parse(script.innerText);
-          } catch (e) {
-            return null;
-          }
-        }).filter(data => data !== null);
-      });
-      jsonLdProducts = jsonLdData.filter(data => {
-        if (Array.isArray(data)) {
-          return data.some(item => item['@type'] === 'Product');
-        } else {
-          return data['@type'] === 'Product';
-        }
-      });
-    } catch (err) {
-      console.error(`Failed to load page ${url}:`, err.message);
-      // Ga door met de analyse, zelfs als de pagina niet volledig laadt
-    }
-
-    // Methode 1: Categorielinks
-    const extractCategoryCounts = async () => {
-      try {
-        return await page.evaluate(() => {
-          const categoryLinks = document.querySelectorAll('a[href*="/product-categorie/"], a[href*="/category/"], a[href*="/shop/"]');
-          const categories = [];
-
-          categoryLinks.forEach(link => {
-            const style = window.getComputedStyle(link);
-            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-              return;
-            }
-
-            const name = link.textContent.trim();
-            const href = link.href;
-            const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim();
-
-            const match = cleanName.match(/(\d+)\s*(Producten|Items|Products)/i);
-            if (match) {
-              const count = parseInt(match[1], 10);
-              categories.push({ name: cleanName, count, link: href });
-            }
-          });
-
-          return categories;
-        });
-      } catch (err) {
-        console.error(`Error extracting category counts for ${url}:`, err.message);
-        return [];
-      }
-    };
-
-    // Methode 2: Individuele producten
-    const countProductsOnPage = async (pageUrl) => {
-      try {
-        return await page.evaluate(() => {
-          const selectors = [
-            '.product', '.product-item', '.product-card',
-            '.shop-item', '.grid-item', '[data-product]', 
-            '.product-list', '.shop-product', '.woocommerce-product'
-          ];
-          const productsMap = new Map();
-
-          selectors.forEach(sel => {
-            document.querySelectorAll(sel).forEach(el => {
-              const style = window.getComputedStyle(el);
-              if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-                return;
-              }
-
-              const price = el.querySelector(
-                '.price, .amount, [class*="price"], .woocommerce-Price-amount, .cost, [class*="cost"], [itemprop="price"], .product-price, .regular-price'
-              )?.textContent?.trim() || '';
-
-              const name = el.querySelector('h2, h3, .name, .title, .product-title')?.textContent?.trim() || '';
-              const id = el.getAttribute('data-product-id') || el.getAttribute('id') || '';
-              const link = el.querySelector('a')?.href || '';
-
-              const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim();
-              const identifier = id ? id : `${cleanName}-${price}`.trim();
-
-              if (cleanName && cleanName.length > 2 && !cleanName.toLowerCase().includes('categorie') && !cleanName.toLowerCase().includes('alle') && !cleanName.toLowerCase().includes('producten')) {
-                productsMap.set(identifier, { id: identifier, name, price, link });
-              }
-            });
-          });
-
-          const productLinks = document.querySelectorAll('a[href*="product"], a[href*="/shop/"]');
-          productLinks.forEach(link => {
-            const style = window.getComputedStyle(link);
-            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-              return;
-            }
-
-            const href = link.href;
-            if (href.includes('/product-categorie/') || href.includes('/category/')) {
-              return;
-            }
-
-            const name = link.textContent.trim();
-            const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim();
-            const price = link.parentElement?.querySelector(
-              '.price, .amount, [class*="price"], .woocommerce-Price-amount, .cost, [class*="cost"], [itemprop="price"], .product-price, .regular-price'
-            )?.textContent?.trim() || '';
-
-            const identifier = `${cleanName}-${price}`.trim();
-            if (cleanName && cleanName.length > 2 && !cleanName.toLowerCase().includes('categorie') && !cleanName.toLowerCase().includes('alle') && !cleanName.toLowerCase().includes('producten')) {
-              productsMap.set(identifier, { id: identifier, name, price, link: href });
-            }
-          });
-
-          return Array.from(productsMap.values());
-        });
-      } catch (err) {
-        console.error(`Error counting products on ${pageUrl}:`, err.message);
-        return [];
-      }
-    };
-
-    let productCount = 0;
-    let categoryDetails = [];
-    let productDetails = [];
-
-    // Methode 1: Categorielinks
-    const categoryCounts = await extractCategoryCounts();
-    console.log(`Categorieën gevonden op ${url}:`, categoryCounts);
-
-    if (categoryCounts.length > 0) {
-      categoryDetails = categoryCounts;
-      productCount = categoryCounts.reduce((total, category) => total + category.count, 0);
-    } else {
-      // Methode 2: Individuele producten
-      const allProductsMap = new Map();
-
-      let homeProducts = await countProductsOnPage(url);
-      homeProducts.forEach(product => allProductsMap.set(product.id, product));
-      console.log(`Homepagina (${url}): ${homeProducts.length} producten`);
-
-      const menuLinks = await page.evaluate(() => {
-        const headerLinks = Array.from(document.querySelectorAll('header a, nav a, .header a, .nav a'));
-        return headerLinks
-          .map(link => ({
-            href: link.href,
-            text: link.textContent.trim().toLowerCase()
-          }))
-          .filter(item => 
-            item.href && 
-            item.href.includes(window.location.origin) &&
-            !item.text.includes('contact') && 
-            !item.text.includes('onderhoud') && 
-            !item.href.includes('#') &&
-            item.href !== window.location.href &&
-            !item.href.includes('/product-categorie/') &&
-            !item.href.includes('/category/')
-          )
-          .filter((item, index, self) => 
-            self.findIndex(i => i.href === item.href) === index
-          );
-      });
-
-      for (const menuItem of menuLinks) {
+    // Haal JSON‑LD data op voor PIM-integratie en controleer op productdata
+    const jsonLdData = await page.evaluate(() => {
+      const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+      return scripts.map(script => {
         try {
-          console.log(`Bezoek subpagina: ${menuItem.href} (${menuItem.text})`);
-          await page.goto(menuItem.href, { waitUntil: 'networkidle0', timeout: 60000 });
-          await page.waitForTimeout(5000);
-          const subPageProducts = await countProductsOnPage(menuItem.href);
-          subPageProducts.forEach(product => allProductsMap.set(product.id, product));
-          console.log(`Subpagina ${menuItem.href}: ${subPageProducts.length} producten`);
-        } catch (err) {
-          console.log(`Kon subpagina niet laden: ${menuItem.href} - ${err.message}`);
+          return JSON.parse(script.innerText);
+        } catch (e) {
+          return null;
         }
+      }).filter(data => data !== null);
+    });
+    const jsonLdProducts = jsonLdData.filter(data => {
+      if (Array.isArray(data)) {
+        return data.some(item => item['@type'] === 'Product');
+      } else {
+        return data['@type'] === 'Product';
       }
+    });
 
-      productCount = allProductsMap.size;
-      productDetails = Array.from(allProductsMap.values());
+    // Functie om producten op een pagina op te halen met extra details
+    const countProductsOnPage = async (pageUrl) => {
+      return await page.evaluate(() => {
+        const selectors = [
+          '.product', '.product-item', '.product-card',
+          '.shop-item', '.grid-item', '[data-product]', 
+          '.product-list', '.shop-product'
+        ];
+        const productsMap = new Map();
+
+        selectors.forEach(sel => {
+          document.querySelectorAll(sel).forEach(el => {
+            // Controleer of het element zichtbaar is
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+              return;
+            }
+
+            // Haal productdetails op
+            const name = el.querySelector('h2, h3, .name, .title')?.textContent?.trim() || '';
+            const price = el.querySelector('.price, .amount, [class*="price"]')?.textContent?.trim() || '';
+            const id = el.getAttribute('data-product-id') || el.getAttribute('id') || '';
+            const link = el.querySelector('a')?.href || '';
+
+            const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim();
+            const identifier = id ? id : `${cleanName}-${price}-${link}`.trim();
+
+            if (cleanName && cleanName.length > 2) {
+              productsMap.set(identifier, { id: identifier, name, price, link });
+            }
+          });
+        });
+
+        // Voeg ook productlinks uit anchor tags toe, als extra bron
+        const productLinks = document.querySelectorAll('a[href*="product"], a[href*="/shop/"]');
+        productLinks.forEach(link => {
+          const style = window.getComputedStyle(link);
+          if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+            return;
+          }
+
+          const name = link.textContent.trim();
+          const href = link.href;
+          const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim();
+          const identifier = `${cleanName}-${href}`.trim();
+          if (cleanName && cleanName.length > 2 && !cleanName.toLowerCase().includes('categorie') && !cleanName.toLowerCase().includes('alle')) {
+            productsMap.set(identifier, { id: identifier, name, price: '', link: href });
+          }
+        });
+
+        return Array.from(productsMap.values());
+      });
+    };
+
+    // Verzamelen van unieke producten (inclusief details) over alle pagina’s
+    const allProductsMap = new Map();
+
+    // Producten op homepagina
+    let homeProducts = await countProductsOnPage(url);
+    homeProducts.forEach(product => allProductsMap.set(product.id, product));
+    console.log(`Homepagina (${url}): ${homeProducts.length} producten`);
+
+    // Vind menu-items in de header om subpagina's te ontdekken
+    const menuLinks = await page.evaluate(() => {
+      const headerLinks = Array.from(document.querySelectorAll('header a, nav a, .header a, .nav a'));
+      return headerLinks
+        .map(link => ({
+          href: link.href,
+          text: link.textContent.trim().toLowerCase()
+        }))
+        .filter(item => 
+          item.href && 
+          item.href.includes(window.location.origin) &&
+          !item.text.includes('contact') && 
+          !item.text.includes('onderhoud') && 
+          !item.href.includes('#') &&
+          item.href !== window.location.href
+        )
+        .filter((item, index, self) => 
+          self.findIndex(i => i.href === item.href) === index
+        );
+    });
+
+    // Bezoek subpagina’s (1 layer diep) en voeg hun producten toe
+    for (const menuItem of menuLinks) {
+      try {
+        console.log(`Bezoek subpagina: ${menuItem.href} (${menuItem.text})`);
+        await page.goto(menuItem.href, { waitUntil: 'networkidle0', timeout: 15000 });
+        await page.waitForTimeout(1000);
+        const subPageProducts = await countProductsOnPage(menuItem.href);
+        subPageProducts.forEach(product => allProductsMap.set(product.id, product));
+        console.log(`Subpagina ${menuItem.href}: ${subPageProducts.length} producten`);
+      } catch (err) {
+        console.log(`Kon subpagina niet laden: ${menuItem.href} - ${err.message}`);
+      }
     }
 
+    const productCount = allProductsMap.size;
+    // Safe estimate: als er 100 of meer producten zijn, geven we “meer dan 100” terug.
     const safeProductEstimate = productCount >= 100 ? "meer dan 100" : productCount;
 
     const apiUsage = apiRequests.size > 0;
@@ -269,38 +204,22 @@ async function analyzeUrl(url) {
       structuredDataCount,
       productCount,
       safeProductEstimate,
-      categoryDetails,
-      productDetails,
+      productDetails: Array.from(allProductsMap.values()),
       apiUsage,
+      // Indicatoren voor headless/PIM integratie
       pimDataAvailable: jsonLdProducts.length > 0,
       jsonLdProductsCount: jsonLdProducts.length,
       extraObservation
     };
   } catch (error) {
     console.error('Error analyzing URL:', url, error);
-
-    // Fallback-output voor als de pagina niet laadt
-    return {
-      url,
-      error: `Could not load the page: ${error.message}`,
-      title: "Unknown",
-      metaDescription: "No meta description found",
-      structuredDataCount: 0,
-      productCount: 0,
-      safeProductEstimate: 0,
-      categoryDetails: [],
-      productDetails: [],
-      apiUsage: false,
-      pimDataAvailable: false,
-      jsonLdProductsCount: 0,
-      extraObservation: "The website could not be analyzed due to loading issues."
-    };
+    return { url, error: `Could not load the page: ${error.message}` };
   } finally {
     if (browser) await browser.close();
   }
 }
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
