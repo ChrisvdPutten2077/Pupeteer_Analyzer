@@ -1,5 +1,8 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+
+puppeteer.use(StealthPlugin());
 
 const app = express();
 app.use(express.json());
@@ -52,11 +55,6 @@ async function analyzeUrl(url) {
       await page.setExtraHTTPHeaders({
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-      });
-      await page.evaluateOnNewDocument(() => {
-        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
       });
 
       const apiRequests = new Set();
@@ -147,14 +145,16 @@ async function analyzeUrl(url) {
             );
             const categories = [];
 
-            categoryLinks.forEach(link => {
-              const style = window.getComputedStyle(link);
+            // Probeer ook categorielinks zonder href (bijv. in een span of div)
+            const allElements = document.querySelectorAll('a, span, div');
+            allElements.forEach(el => {
+              const style = window.getComputedStyle(el);
               if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
                 return;
               }
 
-              const name = link.textContent.trim();
-              const href = link.href;
+              const name = el.textContent.trim();
+              const href = el.href || '';
               const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim();
 
               const match = cleanName.match(/(\d+)\s*(Producten|Items|Products|Artikelen|Goods|producten)/i);
