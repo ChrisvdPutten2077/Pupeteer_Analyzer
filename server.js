@@ -49,7 +49,7 @@ async function analyzeUrl(url) {
 
     const startTime = Date.now();
     await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(5000); // Verlengde wachttijd voor dynamische content
     const loadTime = (Date.now() - startTime) / 1000;
 
     const title = await page.title();
@@ -102,17 +102,19 @@ async function analyzeUrl(url) {
               return;
             }
 
-            const price = el.querySelector('.price, .amount, [class*="price"]')?.textContent?.trim() || '';
-            if (!price) {
-              return; // Sla elementen zonder prijs over
-            }
+            // Verbeterde prijsselector
+            const price = el.querySelector('.price, .amount, [class*="price"], .woocommerce-Price-amount, .cost, [class*="cost"], [itemprop="price"]')?.textContent?.trim() || '';
+            // Tijdelijk commentaar op prijsfilter voor debugging
+            // if (!price) {
+            //   return;
+            // }
 
             const name = el.querySelector('h2, h3, .name, .title')?.textContent?.trim() || '';
             const id = el.getAttribute('data-product-id') || el.getAttribute('id') || '';
             const link = el.querySelector('a')?.href || '';
 
             const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim();
-            const identifier = id ? id : `${cleanName}-${price}`.trim(); // Link niet in identifier
+            const identifier = id ? id : `${cleanName}-${price}`.trim();
 
             if (cleanName && cleanName.length > 2 && !cleanName.toLowerCase().includes('categorie') && !cleanName.toLowerCase().includes('alle') && !cleanName.toLowerCase().includes('producten')) {
               productsMap.set(identifier, { id: identifier, name, price, link });
@@ -129,98 +131,17 @@ async function analyzeUrl(url) {
 
           const href = link.href;
           if (href.includes('/product-categorie/')) {
-            return; // Sla categorielinks over
+            return;
           }
 
           const name = link.textContent.trim();
           const cleanName = name.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim();
-          const price = link.parentElement?.querySelector('.price, .amount, [class*="price"]')?.textContent?.trim() || '';
-          if (!price) {
-            return; // Sla links zonder prijs over
-          }
+          const price = link.parentElement?.querySelector('.price, .amount, [class*="price"], .woocommerce-Price-amount, .cost, [class*="cost"], [itemprop="price"]')?.textContent?.trim() || '';
+          // Tijdelijk commentaar op prijsfilter voor debugging
+          // if (!price) {
+          //   return;
+          // }
 
           const identifier = `${cleanName}-${price}`.trim();
           if (cleanName && cleanName.length > 2 && !cleanName.toLowerCase().includes('categorie') && !cleanName.toLowerCase().includes('alle') && !cleanName.toLowerCase().includes('producten')) {
-            productsMap.set(identifier, { id: identifier, name, price, link: href });
-          }
-        });
-
-        return Array.from(productsMap.values());
-      });
-    };
-
-    const allProductsMap = new Map();
-
-    let homeProducts = await countProductsOnPage(url);
-    homeProducts.forEach(product => allProductsMap.set(product.id, product));
-    console.log(`Homepagina (${url}): ${homeProducts.length} producten`);
-
-    const menuLinks = await page.evaluate(() => {
-      const headerLinks = Array.from(document.querySelectorAll('header a, nav a, .header a, .nav a'));
-      return headerLinks
-        .map(link => ({
-          href: link.href,
-          text: link.textContent.trim().toLowerCase()
-        }))
-        .filter(item => 
-          item.href && 
-          item.href.includes(window.location.origin) &&
-          !item.text.includes('contact') && 
-          !item.text.includes('onderhoud') && 
-          !item.href.includes('#') &&
-          item.href !== window.location.href &&
-          !item.href.includes('/product-categorie/') // Sla categorielinks over
-        )
-        .filter((item, index, self) => 
-          self.findIndex(i => i.href === item.href) === index
-        );
-    });
-
-    for (const menuItem of menuLinks) {
-      try {
-        console.log(`Bezoek subpagina: ${menuItem.href} (${menuItem.text})`);
-        await page.goto(menuItem.href, { waitUntil: 'networkidle0', timeout: 15000 });
-        await page.waitForTimeout(1000);
-        const subPageProducts = await countProductsOnPage(menuItem.href);
-        subPageProducts.forEach(product => allProductsMap.set(product.id, product));
-        console.log(`Subpagina ${menuItem.href}: ${subPageProducts.length} producten`);
-      } catch (err) {
-        console.log(`Kon subpagina niet laden: ${menuItem.href} - ${err.message}`);
-      }
-    }
-
-    const productCount = allProductsMap.size;
-    const safeProductEstimate = productCount >= 100 ? "meer dan 100" : productCount;
-
-    const apiUsage = apiRequests.size > 0;
-    let extraObservation = "";
-    if (!apiUsage) {
-      extraObservation = "We hebben opgemerkt dat er geen API-koppelingen aanwezig zijn, wat erop wijst dat jullie mogelijk nog geen geïntegreerd systeem voor realtime data, zoals een headless/PIM-oplossing, gebruiken.";
-    }
-
-    return {
-      url,
-      loadTime,
-      title,
-      metaDescription,
-      structuredDataCount,
-      productCount,
-      safeProductEstimate,
-      productDetails: Array.from(allProductsMap.values()),
-      apiUsage,
-      pimDataAvailable: jsonLdProducts.length > 0,
-      jsonLdProductsCount: jsonLdProducts.length,
-      extraObservation
-    };
-  } catch (error) {
-    console.error('Error analyzing URL:', url, error);
-    return { url, error: `Could not load the page: ${error.message}` };
-  } finally {
-    if (browser) await browser.close();
-  }
-}
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-});
+            productsMap.set(identifier,
