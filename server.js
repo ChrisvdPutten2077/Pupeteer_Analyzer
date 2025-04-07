@@ -62,8 +62,8 @@ async function analyzeUrl(url) {
       let jsonLdProducts = [];
 
       try {
-        await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
-        await page.waitForTimeout(5000);
+        await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+        await page.waitForTimeout(2000); // Verkort om sneller te zijn
         loadTime = (Date.now() - startTime) / 1000;
 
         title = await page.title();
@@ -217,6 +217,7 @@ async function analyzeUrl(url) {
         homeProducts.forEach(product => allProductsMap.set(product.id, product));
         console.log(`Homepagina (${url}): ${homeProducts.length} producten`);
 
+        // Beperk het aantal subpagina's om tijd te besparen
         const menuLinks = await page.evaluate(() => {
           const headerLinks = Array.from(document.querySelectorAll('header a, nav a, .header a, .nav a'));
           return headerLinks
@@ -236,14 +237,15 @@ async function analyzeUrl(url) {
             )
             .filter((item, index, self) => 
               self.findIndex(i => i.href === item.href) === index
-            );
+            )
+            .slice(0, 3); // Beperk tot 3 subpagina's
         });
 
         for (const menuItem of menuLinks) {
           try {
             console.log(`Bezoek subpagina: ${menuItem.href} (${menuItem.text})`);
-            await page.goto(menuItem.href, { waitUntil: 'networkidle0', timeout: 60000 });
-            await page.waitForTimeout(5000);
+            await page.goto(menuItem.href, { waitUntil: 'networkidle0', timeout: 30000 });
+            await page.waitForTimeout(2000);
             const subPageProducts = await countProductsOnPage(menuItem.href);
             subPageProducts.forEach(product => allProductsMap.set(product.id, product));
             console.log(`Subpagina ${menuItem.href}: ${subPageProducts.length} producten`);
