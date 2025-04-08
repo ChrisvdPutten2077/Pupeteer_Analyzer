@@ -2,14 +2,17 @@
 // server.js
 ////////////////////////////////////////////////////////
 const express = require('express');
-const lighthouse = require('lighthouse');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const fetch = require('node-fetch'); // Alleen nodig als je data naar Make wilt sturen
+
+// Gebruik de Stealth Plugin om detectie te vermijden
+puppeteer.use(StealthPlugin());
 
 const app = express();
 app.use(express.json());
 
-// Endpoint: /lighthouse
-// Verwacht een POST met een JSON-body: { "urls": ["https://example.com", ...] }
+// Endpoint om URL's te analyseren; verwacht een JSON body met een array "urls"
 app.post('/lighthouse', async (req, res) => {
   try {
     const { urls } = req.body;
@@ -30,20 +33,21 @@ app.post('/lighthouse', async (req, res) => {
   }
 });
 
-// Functie om Lighthouse-audit uit te voeren en performance metrics op te halen
+// Functie om een Lighthouse-audit uit te voeren en performance metrics op te halen
 async function runLighthouseAudit(url) {
   let browser;
   try {
     // Start een headless Chrome met Puppeteer
     browser = await puppeteer.launch({
-      headless: true,
+      headless: 'new',
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
-    // Haal de WebSocket endpoint op en daarmee de poort
     const wsEndpoint = browser.wsEndpoint();
     const port = new URL(wsEndpoint).port;
 
-    // Lighthouse configuratie
+    // Dynamisch importeren van Lighthouse (omdat Lighthouse een ES Module is)
+    const { default: lighthouse } = await import('lighthouse');
+
     const options = {
       logLevel: 'info',
       output: 'json',
@@ -55,7 +59,6 @@ async function runLighthouseAudit(url) {
     const reportJson = runnerResult.report;
     const report = JSON.parse(reportJson);
 
-    // Haal de belangrijkste metrics op
     const fcp = report.audits['first-contentful-paint'].displayValue;
     const lcp = report.audits['largest-contentful-paint'].displayValue;
     const tbt = report.audits['total-blocking-time'].displayValue;
