@@ -8,12 +8,13 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "lighthouse": "^10.0.0",
+    "lighthouse": "^10.7.1",
     "puppeteer": "^19.7.5",
     "puppeteer-extra": "^3.3.4",
-    "puppeteer-extra-plugin-stealth": "^2.11.1"
+    "puppeteer-extra-plugin-stealth": "^2.11.1",
+    "node-fetch": "^3.3.2"
   },
   "engines": {
-    "node": "18.16.0"
+    "node": "18.x"
   }
 }
