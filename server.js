@@ -6,14 +6,14 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fetch = require('node-fetch'); // Alleen nodig als je data naar Make wilt sturen
 
-// Gebruik de Stealth Plugin om detectie te vermijden
 puppeteer.use(StealthPlugin());
 
 const app = express();
 app.use(express.json());
 
-// Endpoint om URL's te analyseren; verwacht een JSON body met een array "urls"
-app.post('/lighthouse', async (req, res) => {
+// LET OP: de route is /analyze
+// Make doet een POST naar /analyze met JSON-body: { "urls": ["https://..."] }
+app.post('/analyze', async (req, res) => {
   try {
     const { urls } = req.body;
     if (!urls || !Array.isArray(urls)) {
@@ -28,26 +28,29 @@ app.post('/lighthouse', async (req, res) => {
     }
     res.json({ results });
   } catch (error) {
-    console.error('Error in /lighthouse endpoint:', error);
+    console.error('Error in /analyze endpoint:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Functie om een Lighthouse-audit uit te voeren en performance metrics op te halen
+// Deze functie doet de Lighthouse-audit via dynamische import (i.v.m. ESM)
 async function runLighthouseAudit(url) {
   let browser;
   try {
-    // Start een headless Chrome met Puppeteer
-    browser = await puppeteer.launch({
-      headless: 'new',
+    // Start Puppeteer
+    const puppeteer = require('puppeteer-extra'); // Als je de extra-plugins gebruikt
+    const browser = await puppeteer.launch({
+      headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
+
     const wsEndpoint = browser.wsEndpoint();
     const port = new URL(wsEndpoint).port;
 
-    // Dynamisch importeren van Lighthouse (omdat Lighthouse een ES Module is)
+    // Dynamisch importeren van Lighthouse (ivm. ESM)
     const { default: lighthouse } = await import('lighthouse');
 
+    // Lighthouse-configuratie
     const options = {
       logLevel: 'info',
       output: 'json',
@@ -55,10 +58,12 @@ async function runLighthouseAudit(url) {
       port
     };
 
+    // Voer Lighthouse uit
     const runnerResult = await lighthouse(url, options);
     const reportJson = runnerResult.report;
     const report = JSON.parse(reportJson);
 
+    // Haal performance metrics op
     const fcp = report.audits['first-contentful-paint'].displayValue;
     const lcp = report.audits['largest-contentful-paint'].displayValue;
     const tbt = report.audits['total-blocking-time'].displayValue;
@@ -74,8 +79,8 @@ async function runLighthouseAudit(url) {
   }
 }
 
-// Start de server op de poort die door de omgeving wordt meegegeven of op 3000 als fallback
+// Poort instellen via process.env.PORT (of 3000 lokaal)
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Lighthouse server is running on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });
