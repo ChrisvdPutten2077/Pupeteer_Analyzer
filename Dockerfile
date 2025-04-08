@@ -55,8 +55,8 @@ RUN npm install
 # Kopieer alle andere bestanden
 COPY . .
 
-# Exposeer poort 3000 (Render gebruikt de door de omgeving meegegeven poort)
+# Exposeer poort 3000 (Render gebruikt de omgevingsvariabele voor de poort)
 EXPOSE 3000
 
-# Start de server
+# Start de server via het startscript
 CMD ["npm", "start"]
