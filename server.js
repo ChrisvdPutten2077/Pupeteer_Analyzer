@@ -4,15 +4,16 @@
 const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-const fetch = require('node-fetch'); // Alleen nodig als je data naar Make wilt sturen
+const fetch = require('node-fetch'); // Indien je data naar een externe service wilt sturen
 
+// Gebruik de Stealth Plugin
 puppeteer.use(StealthPlugin());
 
 const app = express();
 app.use(express.json());
 
-// LET OP: de route is /analyze
-// Make doet een POST naar /analyze met JSON-body: { "urls": ["https://..."] }
+// Endpoint: /analyze
+// Dit endpoint accepteert een POST met JSON: { "urls": ["https://site1.com", "https://site2.com"] }
 app.post('/analyze', async (req, res) => {
   try {
     const { urls } = req.body;
@@ -22,7 +23,7 @@ app.post('/analyze', async (req, res) => {
 
     const results = [];
     for (const url of urls) {
-      console.log(`Running Lighthouse for: ${url}`);
+      console.log(`Running Lighthouse audit for: ${url}`);
       const metrics = await runLighthouseAudit(url);
       results.push({ url, ...metrics });
     }
@@ -33,24 +34,22 @@ app.post('/analyze', async (req, res) => {
   }
 });
 
-// Deze functie doet de Lighthouse-audit via dynamische import (i.v.m. ESM)
+// Functie om Lighthouse-audit uit te voeren en performance metrics op te halen
 async function runLighthouseAudit(url) {
   let browser;
   try {
-    // Start Puppeteer
-    const puppeteer = require('puppeteer-extra'); // Als je de extra-plugins gebruikt
-    const browser = await puppeteer.launch({
+    // Start een headless browser met Puppeteer en geef het pad naar de geïnstalleerde Chromium op
+    browser = await puppeteer.launch({
       headless: true,
+      execPath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
-
     const wsEndpoint = browser.wsEndpoint();
     const port = new URL(wsEndpoint).port;
 
-    // Dynamisch importeren van Lighthouse (ivm. ESM)
+    // Dynamisch importeren van Lighthouse (omdat Lighthouse een ES Module is)
     const { default: lighthouse } = await import('lighthouse');
 
-    // Lighthouse-configuratie
     const options = {
       logLevel: 'info',
       output: 'json',
@@ -58,12 +57,11 @@ async function runLighthouseAudit(url) {
       port
     };
 
-    // Voer Lighthouse uit
     const runnerResult = await lighthouse(url, options);
     const reportJson = runnerResult.report;
     const report = JSON.parse(reportJson);
 
-    // Haal performance metrics op
+    // Extraheer de belangrijkste metrics
     const fcp = report.audits['first-contentful-paint'].displayValue;
     const lcp = report.audits['largest-contentful-paint'].displayValue;
     const tbt = report.audits['total-blocking-time'].displayValue;
@@ -79,7 +77,7 @@ async function runLighthouseAudit(url) {
   }
 }
 
-// Poort instellen via process.env.PORT (of 3000 lokaal)
+// Start de server op de door Render meegegeven poort of fallback op 3000
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
