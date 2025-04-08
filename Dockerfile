@@ -1,4 +1,4 @@
-# Gebruik een officiële Node.js 18 image
+# Gebruik een officiële Node.js 18 image gebaseerd op Bullseye
 FROM node:18-bullseye
 
 # Installeer systeemafhankelijkheden die Chromium nodig heeft
@@ -41,21 +41,22 @@ RUN apt-get update && apt-get install -y \
   --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
-# Stel in dat Puppeteer zijn eigen Chromium niet moet downloaden (optioneel)
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false
+# Stel in dat Puppeteer niet zijn eigen Chromium downloadt en geef het pad op
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Maak een werkmap in de container
+# Maak /app als werkdirectory
 WORKDIR /app
 
-# Kopieer package files en installeer dependencies
+# Kopieer de package files en installeer dependencies
 COPY package*.json ./
 RUN npm install
 
-# Kopieer de rest van de code
+# Kopieer alle andere bestanden
 COPY . .
 
-# Exposeer poort 3000 (Render geeft de poort via een env-variable)
+# Exposeer poort 3000 (Render gebruikt de door de omgeving meegegeven poort)
 EXPOSE 3000
 
-# Start de server via het startscript
+# Start de server
 CMD ["npm", "start"]
