@@ -8,6 +8,8 @@
   },
   "dependencies": {
     "express": "^4.18.2",
+    "puppeteer-extra": "^3.x.x",
+    "puppeteer-extra-plugin-stealth": "^2.x.x",
     "puppeteer": "^19.7.5"
   }
 }
