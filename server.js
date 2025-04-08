@@ -4,7 +4,7 @@
 const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-const fetch = require('node-fetch'); // Indien je data naar een externe service wilt sturen
+const fetch = require('node-fetch'); // Alleen nodig als je data naar een externe service wilt sturen
 
 // Gebruik de Stealth Plugin
 puppeteer.use(StealthPlugin());
@@ -13,7 +13,7 @@ const app = express();
 app.use(express.json());
 
 // Endpoint: /analyze
-// Dit endpoint accepteert een POST met JSON: { "urls": ["https://site1.com", "https://site2.com"] }
+// Dit endpoint verwacht een POST met een JSON-body: { "urls": ["https://site1.com", "https://site2.com"] }
 app.post('/analyze', async (req, res) => {
   try {
     const { urls } = req.body;
@@ -34,11 +34,11 @@ app.post('/analyze', async (req, res) => {
   }
 });
 
-// Functie om Lighthouse-audit uit te voeren en performance metrics op te halen
+// Functie om een Lighthouse-audit uit te voeren en performance metrics op te halen
 async function runLighthouseAudit(url) {
   let browser;
   try {
-    // Start een headless browser met Puppeteer en geef het pad naar de geïnstalleerde Chromium op
+    // Start een headless browser met Puppeteer en gebruik de geïnstalleerde Chromium
     browser = await puppeteer.launch({
       headless: true,
       execPath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
