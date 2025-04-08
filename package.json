@@ -11,5 +11,7 @@
     "puppeteer-extra": "^3.x.x",
     "puppeteer-extra-plugin-stealth": "^2.x.x",
     "puppeteer": "^19.7.5"
+    "engines": {
+    "node": "18.x"
   }
 }
