@@ -43,7 +43,6 @@ app.post('/analyze', async (req, res) => {
 // Functie om een enkele URL te analyseren
 async function analyzeUrl(url) {
   let browser;
-  const maxExecutionTime = 60000; // Maximum 60 seconden per URL
   const startTime = Date.now();
 
   try {
@@ -93,7 +92,7 @@ async function analyzeUrl(url) {
     }
     const loadTime = (Date.now() - pageStartTime) / 1000;
 
-    // Scroll om lazy-loaded content te laden
+    // Scroll om lazy-loaded content te laden (meerdere scroll-cycli voor zekerheid)
     await autoScroll(page);
     await page.waitForTimeout(1000);
 
@@ -105,7 +104,7 @@ async function analyzeUrl(url) {
         el => el.content
       );
     } catch (err) {
-      // Indien niet gevonden, blijft het de standaardwaarde
+      // Indien niet gevonden, blijft de standaardwaarde behouden
     }
 
     // Tel structured data (JSON-LD en microdata)
@@ -115,7 +114,7 @@ async function analyzeUrl(url) {
       return jsonLd + microdata;
     });
 
-    // Eenvoudige telling van producten op de pagina
+    // Verbeterde telling van producten op de pagina:
     const products = await countProductsOnPage(page, url);
     productCount = products.length;
     const safeProductEstimate = productCount >= 100 ? 'meer dan 100' : productCount;
@@ -158,7 +157,8 @@ async function analyzeUrl(url) {
       apiUsage,
       pimDataAvailable: jsonLdProducts.length > 0,
       jsonLdProductsCount: jsonLdProducts.length,
-      extraObservation
+      extraObservation,
+      products // dit veld geeft nu de geparseerde productgegevens weer
     };
   } catch (error) {
     console.error(`Error analyzing URL ${url}:`, error.message);
@@ -173,47 +173,33 @@ async function analyzeUrl(url) {
   }
 }
 
-// Helper functie om automatisch naar beneden te scrollen
+// Helper functie om automatisch naar beneden te scrollen (meerdere scroll-acties)
 async function autoScroll(page) {
-  await page.evaluate(async () => {
-    await new Promise((resolve) => {
-      let totalHeight = 0;
-      const distance = 300;
-      const timer = setInterval(() => {
-        window.scrollBy(0, distance);
-        totalHeight += distance;
-        if (totalHeight >= document.body.scrollHeight) {
-          clearInterval(timer);
-          resolve();
-        }
-      }, 300);
+  for (let i = 0; i < 3; i++) { // scroll drie keer
+    await page.evaluate(() => {
+      window.scrollTo(0, document.body.scrollHeight);
     });
-  });
+    await page.waitForTimeout(2000); // wacht 2 seconden na elke scroll
+  }
 }
 
-// Eenvoudige producttelling gebaseerd op opgegeven selectors
+// Verbeterde producttelling gebaseerd op een specifiekere selector
 async function countProductsOnPage(page, pageUrl) {
   try {
-    const selectors = [
-      '.product',
-      '.product-item',
-      '.product-card',
-      '.shop-item',
-      '.grid-item'
-      // Voeg hier andere specifieke selectors toe indien nodig
-    ];
-    return await page.evaluate((selectors) => {
-      const products = [];
-      selectors.forEach(sel => {
-        document.querySelectorAll(sel).forEach(el => {
-          const style = window.getComputedStyle(el);
-          if (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0') {
-            products.push(el.innerText.trim());
-          }
+    // Pas deze selector aan op basis van de structuur in Chrome DevTools
+    const selector = 'ul.products li.product';
+    return await page.evaluate((selector) => {
+      const productElements = Array.from(document.querySelectorAll(selector));
+      // Filter alleen echte producten op basis van aanwezigheid van een producttitel
+      return productElements
+        .filter(el => el.querySelector('.woocommerce-loop-product__title'))
+        .map(el => {
+          const name = el.querySelector('.woocommerce-loop-product__title')?.textContent?.trim() || '';
+          const price = el.querySelector('.price, .woocommerce-Price-amount')?.textContent?.trim() || '';
+          const link = el.querySelector('a')?.href || '';
+          return { name, price, link };
         });
-      });
-      return products;
-    }, selectors);
+    }, selector);
   } catch (err) {
     console.error(`Error counting products on ${pageUrl}:`, err.message);
     return [];
