@@ -1,7 +1,7 @@
-# Use an official Node 18 image
+# Gebruik een officiële Node.js 18 image
 FROM node:18-bullseye
 
-# Install system dependencies needed for Chromium
+# Installeer systeemafhankelijkheden die Chromium nodig heeft
 RUN apt-get update && apt-get install -y \
   chromium \
   fonts-liberation \
@@ -41,23 +41,21 @@ RUN apt-get update && apt-get install -y \
   --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
-# Tell Puppeteer not to download its own Chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-# Tell Puppeteer where to find Chromium
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+# Stel in dat Puppeteer zijn eigen Chromium niet moet downloaden (optioneel)
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false
 
-# Create and use /app directory
+# Maak een werkmap in de container
 WORKDIR /app
 
-# Copy package files and install
+# Kopieer package files en installeer dependencies
 COPY package*.json ./
 RUN npm install
 
-# Copy the rest of your code
+# Kopieer de rest van de code
 COPY . .
 
-# Expose port 3000 (or whatever port your server uses)
+# Exposeer poort 3000 (Render geeft de poort via een env-variable)
 EXPOSE 3000
 
-# Start your app
-CMD ["node", "server.js"]
+# Start de server via het startscript
+CMD ["npm", "start"]
