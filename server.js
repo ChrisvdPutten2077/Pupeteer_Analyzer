@@ -4,7 +4,6 @@
 const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-const fetch = require('node-fetch'); // Alleen nodig als je data naar een externe service wilt sturen
 
 // Gebruik de Stealth Plugin
 puppeteer.use(StealthPlugin());
