@@ -4,6 +4,8 @@
 const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+// Als je fetch niet gebruikt, kun je de volgende regel verwijderen.
+// const fetch = require('node-fetch'); // Alleen nodig als je data naar een externe service wilt sturen
 
 // Gebruik de Stealth Plugin
 puppeteer.use(StealthPlugin());
@@ -12,14 +14,13 @@ const app = express();
 app.use(express.json());
 
 // Endpoint: /analyze
-// Dit endpoint verwacht een POST met een JSON-body: { "urls": ["https://site1.com", "https://site2.com"] }
+// Verwacht een POST met JSON: { "urls": ["https://site1.com", "https://site2.com"] }
 app.post('/analyze', async (req, res) => {
   try {
     const { urls } = req.body;
     if (!urls || !Array.isArray(urls)) {
       return res.status(400).json({ error: 'Body must contain an array "urls"' });
     }
-
     const results = [];
     for (const url of urls) {
       console.log(`Running Lighthouse audit for: ${url}`);
@@ -66,7 +67,6 @@ async function runLighthouseAudit(url) {
     const tbt = report.audits['total-blocking-time'].displayValue;
     const cls = report.audits['cumulative-layout-shift'].displayValue;
     const si  = report.audits['speed-index'].displayValue;
-
     return { fcp, lcp, tbt, cls, si };
   } catch (err) {
     console.error('Lighthouse audit error:', err);
