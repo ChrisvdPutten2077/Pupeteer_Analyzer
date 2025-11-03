@@ -1,0 +1,36 @@
+name: Scraper automatisch draaien
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Installeer Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18
+
+    - name: Installeer dependencies
+      run: npm install
+
+    - name: Scraper runnen
+      run: npm run start  # Assumptie: Dit runt ALLE scrapers en genereert {provider}_latest.json (bijv. vimexx_latest.json, strato_latest.json)
+
+    - name: Commit resultaten (per provider JSON files)
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add ./results/*_latest.json  # Add email results (in results map)
+        git add ./hosting_results/*_latest.json  # Add hosting results (in hosting_results map)
+        git commit -m "Automatische update: nieuwste domeintarieven per provider" || echo "Geen wijzigingen"
+        git push
